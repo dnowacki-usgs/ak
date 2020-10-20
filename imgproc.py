@@ -90,18 +90,20 @@ for n in range(len(fils)):
     gainsum = np.sum(get_area(gaincontours)) * .1 * .1
     losssum = np.sum(get_area(losscontours)) * .1 * .1
     #
+    timestampA = filA.split('.')[0]
+    timestampB = filB.split('.')[0]
     plt.figure(figsize=(10,8))
     plt.subplot(1,2,1)
     imshow(cv2.drawContours(imageA.copy(), gaincontours, -1, (36,255,12), 2))
-    plt.title(datetime.utcfromtimestamp(int(filA.split('.')[0])).isoformat())
+    plt.title(datetime.utcfromtimestamp(int(timestampA)).isoformat())
     plt.text(20, 10, f'{gainsum:.1f} m2 gained', color='w')
     plt.subplot(1,2,2)
     imshow(cv2.drawContours(imageB.copy(), losscontours, -1, (36,255,12), 2))
-    plt.title(datetime.utcfromtimestamp(int(filB.split('.')[0])).isoformat())
+    plt.title(datetime.utcfromtimestamp(int(timestampB)).isoformat())
     plt.text(20, 10, f'{losssum:.1f} m2 lost\n{gainsum-losssum:.1f} m2 net change', color='w')
     plt.plot([20, 45, 45, 20, 20], [-175, -175, -125, -125, -175])
     plt.text(25, -150, f'{50*25}\nm2', color='w')
-    plt.savefig(filA.split('.')[0] + '.' + camera + '_gain_loss.png', bbox_inches='tight', dpi=300)
+    plt.savefig(timestampA + '.' + camera + '_gain_loss.png', bbox_inches='tight', dpi=300)
     plt.show()
 
 # %%
