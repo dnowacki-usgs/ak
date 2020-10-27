@@ -6,6 +6,8 @@ import imutils
 import matplotlib.pyplot as plt
 from skimage.metrics import structural_similarity
 import numpy as np
+import glob
+import os
 from datetime import datetime
 import glob
 # %%
@@ -21,71 +23,54 @@ def imshow(img):
     # plt.xticks([])
     # plt.yticks([])
 
-fils = [os.path.basename(x).split('.')[0] for x in glob.glob('/Volumes/Backstaff/field/bti/proc/*both.snap.jpg')]
-
-fils = ['1531164600',
-        '1531166400',
-        '1531168200',
-        '1531170000',
-        '1531171800',
-        '1531173600',
-        '1531175400',
-        '1531177200',
-        '1531179000',
-        '1531180800',
-        '1531182600',
-        '1531184400',
-        '1531186200',
-        '1531188000',
-        '1531189800',
-        '1531191600',
-        '1531193400',
-        '1531195200',
-        '1531197000',
-        '1531198800',
-        '1531200600']
-
-fildir = '/Users/dnowacki/Projects/CoastCam/'
-
+# fildir = '/Users/dnowacki/Projects/CoastCam/'
+fildir = '/Volumes/Backstaff/field/bti/'
 camera = 'c1'
-for n in range(len(fils)):
-    filA = fils[n] + '.' + camera + '_rect.png'
-    filB = fils[n+1] + '.' + camera + '_rect.png'
+fils = [os.path.basename(x).split('.')[0] for x in glob.glob(fildir + 'proc/rect/*' + camera + '*snap*png')]
 
-    imageA = cv2.imread(fildir + filA)
-    imageB = cv2.imread(fildir + filB)
+nets = []
+for n in range(len(fils)):
+    timestampA = fils[n]
+    timestampB = fils[n+1]
+    filA = fildir + 'proc/rect/' + timestampA + '.' + camera + '.snap.rect.png'
+    filB = fildir + 'proc/rect/' + timestampB + '.' + camera + '.snap.rect.png'
+
+    imageA = cv2.imread(filA)
+    imageB = cv2.imread(filB)
 
     grayA = cv2.cvtColor(imageA, cv2.COLOR_BGR2GRAY)
     grayB = cv2.cvtColor(imageB, cv2.COLOR_BGR2GRAY)
 
     diff = cv2.subtract(grayB, grayA)
-    plt.figure(figsize=(10,8))
-    plt.subplot(1,3,1)
-    imshow(cv2.absdiff(grayB, grayA))
-    plt.title('absdiff')
-    plt.subplot(1,3,2)
-    imshow(cv2.subtract(grayB, grayA))
-    plt.title('B-A')
-    plt.subplot(1,3,3)
-    imshow(cv2.subtract(grayA, grayB))
-    plt.title('A-B')
+
+    # plt.figure(figsize=(10,8))
+    # plt.subplot(1,3,1)
+    # imshow(cv2.absdiff(grayB, grayA))
+    # plt.title('absdiff')
+    # plt.subplot(1,3,2)
+    # imshow(cv2.subtract(grayB, grayA))
+    # plt.title('B-A')
+    # plt.subplot(1,3,3)
+    # imshow(cv2.subtract(grayA, grayB))
+    # plt.title('A-B')
 
     BminusA = cv2.subtract(grayB, grayA)
     AminusB = cv2.subtract(grayA, grayB)
 
     bigDiff = BminusA.astype(int) - AminusB.astype(int)
     normBigDiff = cv2.normalize(bigDiff.copy(), None, 255, 0, cv2.NORM_MINMAX).astype(np.uint8)
-    plt.figure(figsize=(10,6))
-    plt.subplot(1,2,1)
-    plt.imshow(bigDiff, cmap=plt.cm.RdBu)
-    plt.title('Big difference')
-    plt.colorbar()
 
-    plt.subplot(1,2,2)
-    plt.imshow(normBigDiff, cmap=plt.cm.RdBu)
-    plt.colorbar()
-    plt.title('normalized big difference')
-    plt.show()
+    # plt.figure(figsize=(10,6))
+    # plt.subplot(1,2,1)
+    # plt.imshow(bigDiff, cmap=plt.cm.RdBu)
+    # plt.title('Big difference')
+    # plt.colorbar()
+    #
+    # plt.subplot(1,2,2)
+    # plt.imshow(normBigDiff, cmap=plt.cm.RdBu)
+    # plt.colorbar()
+    # plt.title('normalized big difference')
+    # plt.show()
 
     _, bdgain = cv2.threshold(normBigDiff, 175, 255, 0)
     _, bdloss = cv2.threshold(normBigDiff, 81, 255, 0)
@@ -93,23 +78,30 @@ for n in range(len(fils)):
     losscontours = get_contours(cv2.bitwise_not(bdloss))
     gainsum = np.sum(get_area(gaincontours)) * .1 * .1
     losssum = np.sum(get_area(losscontours)) * .1 * .1
-    #
-    timestampA = filA.split('.')[0]
-    timestampB = filB.split('.')[0]
-    plt.figure(figsize=(10,8))
-    plt.subplot(1,2,1)
-    imshow(cv2.drawContours(imageA.copy(), gaincontours, -1, (36,255,12), 2))
-    plt.title(datetime.utcfromtimestamp(int(timestampA)).isoformat())
-    plt.text(20, 10, f'{gainsum:.1f} m2 gained', color='w')
-    plt.subplot(1,2,2)
-    imshow(cv2.drawContours(imageB.copy(), losscontours, -1, (36,255,12), 2))
-    plt.title(datetime.utcfromtimestamp(int(timestampB)).isoformat())
-    plt.text(20, 10, f'{losssum:.1f} m2 lost\n{gainsum-losssum:.1f} m2 net change', color='w')
-    plt.plot([20, 45, 45, 20, 20], [-175, -175, -125, -125, -175])
-    plt.text(25, -150, f'{50*25}\nm2', color='w')
-    plt.savefig(timestampA + '.' + camera + '_gain_loss.png', bbox_inches='tight', dpi=300)
-    plt.show()
+    nets.append(gainsum-losssum)
+    print(timestampA, gainsum-losssum)
 
+    # plt.figure(figsize=(10,8))
+    # plt.subplot(1,2,1)
+    # imshow(cv2.drawContours(imageA.copy(), gaincontours, -1, (36,255,12), 2))
+    # plt.title(datetime.utcfromtimestamp(int(timestampA)).isoformat())
+    # plt.text(20, 10, f'{gainsum:.1f} m2 gained', color='w')
+    # plt.subplot(1,2,2)
+    # imshow(cv2.drawContours(imageB.copy(), losscontours, -1, (36,255,12), 2))
+    # plt.title(datetime.utcfromtimestamp(int(timestampB)).isoformat())
+    # plt.text(20, 10, f'{losssum:.1f} m2 lost\n{gainsum-losssum:.1f} m2 net change', color='w')
+    # plt.plot([20, 45, 45, 20, 20], [-175, -175, -125, -125, -175])
+    # plt.text(25, -150, f'{50*25}\nm2', color='w')
+    # plt.savefig(fildir + 'proc/figs/' + timestampA + '.' + camera + '.gainloss.png', bbox_inches='tight', dpi=300)
+    # plt.show()
+
+nets = np.array(nets)
+len(fils)
+nets.shape
+filarr = np.array(fils).astype(int)
+
+# %%
+plt.plot(filarr[0:-1], np.cumsum(nets))
 # %%
 plt.figure(figsize=(16,13))
 
