@@ -1,4 +1,5 @@
 %matplotlib inline
+%config InlineBackend.figure_format = 'retina'
 import cv2
 import skimage
 import imutils
@@ -6,6 +7,7 @@ import matplotlib.pyplot as plt
 from skimage.metrics import structural_similarity
 import numpy as np
 from datetime import datetime
+import glob
 # %%
 def get_contours(thresh, min_area=-1):
     contours, hierarchy = cv2.findContours(thresh.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
@@ -18,6 +20,8 @@ def imshow(img):
     plt.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB), extent=(10,200,-200,25))
     # plt.xticks([])
     # plt.yticks([])
+
+fils = [os.path.basename(x).split('.')[0] for x in glob.glob('/Volumes/Backstaff/field/bti/proc/*both.snap.jpg')]
 
 fils = ['1531164600',
         '1531166400',
