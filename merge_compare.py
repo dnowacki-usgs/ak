@@ -12,7 +12,13 @@ ts2 = [os.path.basename(x).split('.')[0] for x in glob.glob('/Volumes/Backstaff/
 camera = 'both'
 if camera is 'both':
     ts = list(set(ts1) & set(ts2))
+
+
+camera = 'both'
+
 fildir = '/Volumes/Backstaff/field/bti/'
+ts = [os.path.basename(x).split('.')[0] for x in glob.glob(fildir + 'proc/rect/*' + camera + '*snap*png')]
+
 
 
 
