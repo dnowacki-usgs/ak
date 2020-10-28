@@ -25,10 +25,18 @@ def imshow(img, extent=(10,200,-200,25)):
     # plt.xticks([])
     # plt.yticks([])
 
+def get_gainloss(grayA, grayB):
+    BminusA = cv2.normalize(cv2.subtract(grayB, grayA), None, 255, 0, cv2.NORM_MINMAX)
+    AminusB = cv2.normalize(cv2.subtract(grayA, grayB), None, 255, 0, cv2.NORM_MINMAX)
+    _, bdgain = cv2.threshold(BminusA, 80, 255, 0)
+    _, bdloss = cv2.threshold(AminusB, 80, 255, 0)
+
+    return bdgain, bdloss
+
 # fildir = '/Users/dnowacki/Projects/CoastCam/'
 fildir = '/Volumes/Backstaff/field/bti/'
 camera = 'c1'
-fils = [os.path.basename(x).split('.')[0] for x in glob.glob(fildir + 'proc/rect/*' + camera + '*snap*png')][0:2]
+fils = [os.path.basename(x).split('.')[0] for x in glob.glob(fildir + 'proc/rect/*' + camera + '*snap*png')][0:10]
 
 xmin = 10
 xmax = 200
@@ -42,6 +50,7 @@ y = np.arange(ymin, ymax+dy, dy)
 xgoods = np.where(x < 150)[0]
 ygoods = np.where(np.isfinite(y))[0]
 
+
 nets = []
 for n in range(len(fils) - 1):
     timestampA = fils[n]
@@ -52,15 +61,6 @@ for n in range(len(fils) - 1):
     # load and crop
     imageA = cv2.imread(filA)[ygoods[:,None], xgoods[None,:], :]
     imageB = cv2.imread(filB)[ygoods[:,None], xgoods[None,:], :]
-
-    # grayA = cv2.cvtColor(imageA, cv2.COLOR_BGR2GRAY)
-    # grayB = cv2.cvtColor(imageB, cv2.COLOR_BGR2GRAY)
-
-    grayA = imageA[:,:,2]
-    grayB = imageB[:,:,2]
-
-    BminusA = cv2.normalize(cv2.subtract(grayB, grayA), None, 255, 0, cv2.NORM_MINMAX)
-    AminusB = cv2.normalize(cv2.subtract(grayA, grayB), None, 255, 0, cv2.NORM_MINMAX)
 
     # plt.figure(figsize=(16,8))
     # plt.subplot(1,2,1)
@@ -88,42 +88,50 @@ for n in range(len(fils) - 1):
     # plt.title('normalized big difference')
     # plt.show()
 
-    # _, bdgain = cv2.threshold(normBigDiff, 175, 255, 0)
-    # _, bdloss = cv2.threshold(normBigDiff, 81, 255, 0)
-    _, bdgain = cv2.threshold(BminusA, 80, 255, 0)
-    _, bdloss = cv2.threshold(AminusB, 80, 255, 0)
-    gaincontours = get_contours(bdgain)
-    losscontours = get_contours(bdloss)
-    gainsum = np.sum(get_area(gaincontours)) * .1 * .1
-    losssum = np.sum(get_area(losscontours)) * .1 * .1
-    nets.append(gainsum-losssum)
-    print(f'{timestampA}, {gainsum-losssum:.1f}')
+    for imgtype in ['gray', 'hsv', '0', '1', '2']:
+        if imgtype is 'gray':
+            grayA = cv2.cvtColor(imageA, cv2.COLOR_BGR2GRAY)
+            grayB = cv2.cvtColor(imageB, cv2.COLOR_BGR2GRAY)
+        elif imgtype is 'hsv':
+            grayA = cv2.cvtColor(imageA, cv2.COLOR_BGR2HSV)[:,:,2]
+            grayB = cv2.cvtColor(imageB, cv2.COLOR_BGR2HSV)[:,:,2]
+        else:
+            grayA = imageA[:,:,int(imgtype)]
+            grayB = imageB[:,:,int(imgtype)]
 
-    plt.figure(figsize=(12,8))
-    plt.subplot(1,2,1)
-    imshow(cv2.drawContours(
-            cv2.drawContours(imageA.copy(), losscontours, -1, (12,36,255), 2),
-           gaincontours, -1, (36,255,12), 2),
-           extent=(x[xgoods].min(), x[xgoods].max(), y[ygoods].min(), y[ygoods].max()))
-    plt.title(datetime.utcfromtimestamp(int(timestampA)).isoformat())
-    plt.text(20, -6, f'+ {gainsum:.1f} m$^2$', color='w')
-    plt.subplot(1,2,2)
-    imshow(cv2.drawContours(
-            cv2.drawContours(imageB.copy(), losscontours, -1, (12,36,255), 2),
-           gaincontours, -1, (36,255,12), 2),
-           extent=(x[xgoods].min(), x[xgoods].max(), y[ygoods].min(), y[ygoods].max()))
-    plt.title(datetime.utcfromtimestamp(int(timestampB)).isoformat())
-    plt.text(20, -6, f'- {losssum:.1f} m$^2$\nnet $\Delta$: {gainsum-losssum:.1f} m$^2$', color='w')
-    plt.plot([20, 45, 45, 20, 20], [-175, -175, -125, -125, -175])
-    plt.text(25, -150, f'{50*25}\nm$^2$', color='w')
-    # plt.subplot(1,3,3)
-    # imshow(normBigDiff, extent=(x[xgoods].min(), x[xgoods].max(), y[ygoods].min(), y[ygoods].max()))
-    # plt.title(datetime.utcfromtimestamp(int(timestampB)).isoformat())
-    # plt.text(20, 5, f'{losssum:.1f} m$^2$ lost\n{gainsum-losssum:.1f} m$^2$ net change', color='w')
-    # plt.plot([20, 45, 45, 20, 20], [-175, -175, -125, -125, -175])
-    # plt.text(25, -150, f'{50*25}\nm$^2$', color='w')
-    plt.savefig(fildir + 'proc/figs/' + timestampA + '.' + camera + '.snap.gainloss.png', bbox_inches='tight', dpi=300)
-    plt.show()
+        bdgain, bdloss = get_gainloss(grayA, grayB)
+        gaincontours = get_contours(bdgain)
+        losscontours = get_contours(bdloss)
+        gainsum = np.sum(get_area(gaincontours)) * .1 * .1
+        losssum = np.sum(get_area(losscontours)) * .1 * .1
+        nets.append(gainsum-losssum)
+        print(f'{timestampA}, {gainsum-losssum:.1f}')
+
+        plt.figure(figsize=(12,8))
+        plt.subplot(1,2,1)
+        imshow(cv2.drawContours(
+                cv2.drawContours(imageA.copy(), losscontours, -1, (12,36,255), 2),
+               gaincontours, -1, (36,255,12), 2),
+               extent=(x[xgoods].min(), x[xgoods].max(), y[ygoods].min(), y[ygoods].max()))
+        plt.title(datetime.utcfromtimestamp(int(timestampA)).isoformat())
+        plt.text(20, -6, f'+ {gainsum:.1f} m$^2$', color='w')
+        plt.subplot(1,2,2)
+        imshow(cv2.drawContours(
+                cv2.drawContours(imageB.copy(), losscontours, -1, (12,36,255), 2),
+               gaincontours, -1, (36,255,12), 2),
+               extent=(x[xgoods].min(), x[xgoods].max(), y[ygoods].min(), y[ygoods].max()))
+        plt.title(datetime.utcfromtimestamp(int(timestampB)).isoformat())
+        plt.text(20, -6, f'- {losssum:.1f} m$^2$\nnet $\Delta$: {gainsum-losssum:.1f} m$^2$', color='w')
+        plt.plot([20, 45, 45, 20, 20], [-175, -175, -125, -125, -175])
+        plt.text(25, -150, f'{50*25}\nm$^2$', color='w')
+        # plt.subplot(1,3,3)
+        # imshow(normBigDiff, extent=(x[xgoods].min(), x[xgoods].max(), y[ygoods].min(), y[ygoods].max()))
+        # plt.title(datetime.utcfromtimestamp(int(timestampB)).isoformat())
+        # plt.text(20, 5, f'{losssum:.1f} m$^2$ lost\n{gainsum-losssum:.1f} m$^2$ net change', color='w')
+        # plt.plot([20, 45, 45, 20, 20], [-175, -175, -125, -125, -175])
+        # plt.text(25, -150, f'{50*25}\nm$^2$', color='w')
+        plt.savefig(fildir + 'proc/figs/' + timestampA + '.' + camera + '.' + imgtype + '.snap.gainloss.png', bbox_inches='tight', dpi=300)
+        plt.show()
 
 nets = np.array(nets)
 filarr = np.array(fils).astype(int)
