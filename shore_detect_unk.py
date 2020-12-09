@@ -95,22 +95,20 @@ times = []
 stds = []
 ts = np.hstack([tens, elevens, noons, thirteens, fourteens, fifteens])
 # ENSURE ONLY 2018 DATA
-ts = ts[pd.DatetimeIndex([pd.Timestamp(x, unit='s') for x in ts]) < pd.Timestamp('2019-01-01')]
+goods = np.array([pd.Timestamp(x, unit='s').isocalendar()[0] == 2018 for x in ts])# need the funny isocalendar for week of year computations later
 # ENSURE ONLY 2019 DATA
-# ts = ts[pd.DatetimeIndex([pd.Timestamp(x, unit='s') for x in ts]) > pd.Timestamp('2019-01-01')]
+goods = np.array([pd.Timestamp(x, unit='s').isocalendar()[0] == 2019 for x in ts])
+ts = ts[goods]
 goods = (np.array([pd.Timestamp(x, unit='s').weekofyear for x in ts]) <= 48) & (np.array([pd.Timestamp(x, unit='s').month for x in ts]) >= 5)
 ts = ts[goods]
 len(ts)
-for t in np.random.choice(ts, 200):
+for t in np.random.choice(ts, 400):
     # if (pd.Timestamp(t, unit='s').month > 10) or (pd.Timestamp(t, unit='s').month < 5):
         # continue
     t = str(t)
     ifile = fildir + 'proc/rect/' + t + '.' + camera + '.' + product + '.rect.png'
-    imgboth = np.rot90(imageio.imread(ifile))
-    # hsv = rgb2hsv(imgboth)
-    # lab = rgb2lab(imgboth)
-    # lab = cv2.cvtColor(np.flip(imgboth,2), cv2.COLOR_BGR2Lab).astype(float) / 255
-    # hsv = rgb2hsv(imgboth)
+    # imgboth = np.rot90(imageio.imread(ifile))
+
     hsv = cv2.cvtColor(np.flip(imgboth,2), cv2.COLOR_BGR2HSV).astype(float) / 255
     rboth = imgboth[:,:,0]
     gboth = imgboth[:,:,1]
@@ -127,11 +125,6 @@ for t in np.random.choice(ts, 200):
     plt.axhline(xstart, c='grey')
     plt.axhline(xend, c='grey')
     for xloc in np.arange(200,1201,100):
-        # l = movavg(lab[:,xloc, 0].copy())
-        # a = movavg(lab[:,xloc, 1].copy())
-        # b = movavg(lab[:,xloc, 2].copy())
-        # h = movavg(hsv[:,xloc, 0].copy())
-        # s = movavg(hsv[:,xloc, 1].copy())
         h = movavg(hsv[:,xloc, 0].copy())
         s = movavg(hsv[:,xloc, 1].copy())
         v = hsv[:,xloc, 2].copy()
@@ -197,31 +190,6 @@ for t in np.random.choice(ts, 200):
             plt.plot(xloc+200*s, np.arange(len(s)), 'r')
             # plt.plot(xloc-20, ghloc, 'bo')
             if xloc == 800:
-                # plt.plot(xloc-400+200*h,np.arange(len(h)))
-                # plt.plot(xloc-400+200*h[minh],minh, '.')
-                # plt.plot(xloc-400+200*h[minh],ghloc, '.')
-                #
-                # plt.plot(xloc+200*v,np.arange(len(v)))
-                # plt.plot(xloc+200*v[lm],lm, '.')
-                # plt.plot(xloc+200*v[lm],gvloc, '.')
-
-                # plt.plot(xloc-200+200*s, np.arange(len(s)), 'r')
-                # plt.plot(xloc-200+200*s[mins],mins, '.')
-                # plt.plot(xloc-200+200*s[mins],gsloc, 's')
-                # plt.plot(xloc-200+200*s[mins], otsuloc, '*')
-
-                # plt.plot(xloc+400+200*l, np.arange(len(s)))
-                # plt.plot(xloc-200+200*l[mins],mins, '.')
-                # plt.plot(xloc-200+200*l[mins],gsloc, '.')
-
-                # plt.plot(xloc+600+200*a, np.arange(len(s)))
-                # plt.plot(xloc-200+200*s[mins],mins, '.')
-                # plt.plot(xloc-200+200*s[mins],gsloc, '.')
-
-                # plt.plot(xloc+800+200*b, np.arange(len(s)))
-                # plt.plot(xloc-200+200*s[mins],mins, '.')
-                # plt.plot(xloc-200+200*s[mins],gsloc, '.')
-
                 ylocs.append(gvloc)
                 sylocs.append(gsloc)
                 hylocs.append(ghloc)
@@ -243,7 +211,7 @@ for t in np.random.choice(ts, 200):
     plt.ylim(2000,1200)
     plt.title(f"{t} --- {pd.to_datetime(t, unit='s').tz_localize(pytz.utc).tz_convert(pytz.timezone('US/Alaska'))}, WL = {wl.values} m NAVD88, Hs = {hs.values:.2} m")
     print(t)
-    plt.savefig('unk' + t + '.png', bbox_inches='tight')
+    # plt.savefig('unk' + t + '.png', bbox_inches='tight')
     plt.show()
     # skimage.filters.threshold_otsu(s[xstart:xend])
     # plt.plot(s)
@@ -276,7 +244,7 @@ plt.plot(wls[goods], x[sylocs][goods], 'r.')
 plt.fill_between(xs, ys-150*.1, ys+150*.1, color='lightgrey', zorder=0)
 plt.colorbar()
 
-
+pd.Timestamp('2018-12-31T21:50+00:00').isocalendar()
 # %%
 goods = (np.abs(x[df['sylocs']] - df['min_ys']) > 4) & (df['stds'] >= 0.04)
 
@@ -312,9 +280,12 @@ slopes = []
 weeks = []
 r2s = []
 theils = []
-for month, gb in df.groupby(df.index.weekofyear):
+
+df.index.min().isocalendar()
+df.index.isocalendar().year
+for month, gb in df.groupby(df.index.isocalendar().week):
     weeks.append(month)
-    # print(month)
+    print(gb)
     goods = (np.abs(x[gb['sylocs']] - gb['min_ys']) > 4) & (gb['stds'] >= 0.04)
     plt.subplot(4,8,n)
 
