@@ -32,17 +32,20 @@ plt.show()
 hs   = xr.concat([xr.open_dataset(fildir + 'ww3_multi_1/multi_1.ak_4m.hs.201808.grb2', engine='cfgrib'),
                   xr.open_dataset(fildir + 'ww3_multi_1/multi_1.ak_4m.hs.201809.grb2', engine='cfgrib'),
                   xr.open_dataset(fildir + 'ww3_multi_1/multi_1.ak_4m.hs.201810.grb2', engine='cfgrib'),
-                  xr.open_dataset(fildir + 'ww3_multi_1/multi_1.ak_4m.hs.201811.grb2', engine='cfgrib')],
+                  xr.open_dataset(fildir + 'ww3_multi_1/multi_1.ak_4m.hs.201811.grb2', engine='cfgrib'),
+                  xr.open_dataset(fildir + 'ww3_multi_1/multi_1.ak_4m.hs.201905.grb2', engine='cfgrib')],
                   dim='step')
 wind = xr.concat([xr.open_dataset(fildir + 'ww3_multi_1/multi_1.ak_4m.wind.201808.grb2', engine='cfgrib'),
                   xr.open_dataset(fildir + 'ww3_multi_1/multi_1.ak_4m.wind.201809.grb2', engine='cfgrib'),
                   xr.open_dataset(fildir + 'ww3_multi_1/multi_1.ak_4m.wind.201810.grb2', engine='cfgrib'),
-                  xr.open_dataset(fildir + 'ww3_multi_1/multi_1.ak_4m.wind.201811.grb2', engine='cfgrib'),],
+                  xr.open_dataset(fildir + 'ww3_multi_1/multi_1.ak_4m.wind.201811.grb2', engine='cfgrib'),
+                  xr.open_dataset(fildir + 'ww3_multi_1/multi_1.ak_4m.wind.201905.grb2', engine='cfgrib'),],
                   dim='step')
 tp   = xr.concat([xr.open_dataset(fildir + 'ww3_multi_1/multi_1.ak_4m.tp.201808.grb2', engine='cfgrib'),
                   xr.open_dataset(fildir + 'ww3_multi_1/multi_1.ak_4m.tp.201809.grb2', engine='cfgrib'),
                   xr.open_dataset(fildir + 'ww3_multi_1/multi_1.ak_4m.tp.201810.grb2', engine='cfgrib'),
-                  xr.open_dataset(fildir + 'ww3_multi_1/multi_1.ak_4m.tp.201811.grb2', engine='cfgrib'),],
+                  xr.open_dataset(fildir + 'ww3_multi_1/multi_1.ak_4m.tp.201811.grb2', engine='cfgrib'),
+                  xr.open_dataset(fildir + 'ww3_multi_1/multi_1.ak_4m.tp.201905.grb2', engine='cfgrib'),],
                   dim='step')
 ds = xr.merge([hs, wind, tp], combine_attrs='override')
 # %%
