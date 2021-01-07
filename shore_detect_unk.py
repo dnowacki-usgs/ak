@@ -18,13 +18,19 @@ import matplotlib.colors
 %config InlineBackend.figure_format='retina'
 import xarray as xr
 import warnings
+import matplotlib.dates as mdates
+
+fildir = '/Volumes/Backstaff/field/unk/'
+
 n9468333 = xr.load_dataset('/Volumes/Backstaff/field/unk/n9468333.nc')
 wavesunk = xr.load_dataset('/Volumes/Backstaff/field/unk/ak_4m.nc')
-
+paun = xr.load_dataset('/Volumes/Backstaff/field/unk/paun_timeseries.nc')
+topo = pd.read_csv(fildir + 'gis/Unk19_ForDN/topo/asc/unk19_topo_argusFOV_with_local.csv')
+bathy = pd.read_csv(fildir + 'gis/Unk19_ForDN/bathy/csv/UNK19_bathy_with_local.csv')
 camera = 'both'
 product = 'timex'
 
-fildir = '/Volumes/Backstaff/field/unk/'
+
 # %%
 """ load all rectified images and plot availability by hour """
 ts = [os.path.basename(x).split('.')[0] for x in glob.glob(fildir + 'proc/rect/*' + camera + '.' + product + '.rect.png')]
@@ -44,6 +50,7 @@ plt.grid()
 def to_epoch(dtime):
     return (dtime.tz_convert(pytz.utc).tz_convert(None) - pd.Timestamp("1970-01-01")) // pd.Timedelta('1s')
 
+eights = to_epoch(gb[8][(gb[8].month >= 5) & (gb[8].month <= 8)]) # restrict to summer months
 nines = to_epoch(gb[9])
 tens = to_epoch(gb[10])
 elevens = to_epoch(gb[11])
@@ -53,6 +60,10 @@ fourteens = to_epoch(gb[14])
 fifteens = to_epoch(gb[15])
 sixteens = to_epoch(gb[16])
 seventeens = to_epoch(gb[17])
+eighteens = to_epoch(gb[18][(gb[18].month >= 4) & (gb[18].month <= 9)]) # restrict to summer months
+nineteens = to_epoch(gb[19][(gb[19].month >= 4) & (gb[19].month <= 8)])
+twenties = to_epoch(gb[20][(gb[20].month >= 5) & (gb[20].month <= 8)])
+
 # %%
 """ process and detect shorelines for given images """
 def movavg(data, window_width=5):
@@ -61,22 +72,23 @@ def movavg(data, window_width=5):
 x = np.arange(0, 250, .1)
 y = np.arange(-150,40,.1)
 
-ts = np.hstack([nines, tens, elevens, noons, thirteens, fourteens, fifteens, sixteens, seventeens])
+ts = np.hstack([nines, tens, elevens, noons, thirteens, fourteens, fifteens, sixteens, seventeens, eighteens, nineteens, twenties])
 # ENSURE ONLY 2018 DATA
 # goods = np.array([pd.Timestamp(x, unit='s').isocalendar()[0] == 2018 for x in ts])# need the funny isocalendar for week of year computations later
 # ENSURE ONLY 2019 DATA
-[pd.Timestamp(x, unit='s') for x in ts]
-goods = np.array([pd.Timestamp(x, unit='s').isocalendar()[0] == 2019 for x in ts]) & np.array([pd.Timestamp(x, unit='s').year == 2019 for x in ts])
-ts = ts[goods]
+# goods = np.array([pd.Timestamp(x, unit='s').isocalendar()[0] == 2019 for x in ts]) & np.array([pd.Timestamp(x, unit='s').year == 2019 for x in ts])
+# ts = ts[goods]
 goods = (np.array([pd.Timestamp(x, unit='s').weekofyear for x in ts]) <= 44) & (np.array([pd.Timestamp(x, unit='s').month for x in ts]) >= 5)
 ts = ts[goods]
 
 wvs = xr.Dataset()
+wavesunk.perpw
 _, index = np.unique(wavesunk['valid_time'], return_index=True)
 wvs['time'] = wavesunk.valid_time.values[index]
-wvs['swh'] = xr.DataArray(wavesunk['swh'].values[index], dims='time')
+for var in ['swh', 'perpw']:
+    wvs[var] = xr.DataArray(wavesunk[var].values[index], dims='time')
 
-xlocs = np.arange(300,1301,100)
+xlocs = np.arange(300,1301,50)
 
 aux = xr.Dataset()
 aux['time'] = xr.DataArray([pd.Timestamp(int(x), unit='s') for x in ts], dims='time')
@@ -84,6 +96,8 @@ aux['xlocs'] = xr.DataArray(xlocs, dims='xlocs')
 aux['timestamp'] = xr.DataArray([int(x) for x in ts], dims='time')
 aux['wl'] = n9468333['v'].reindex_like(aux, method='nearest', tolerance='5min')
 aux['hs'] =  wvs['swh'].reindex_like(aux, method='nearest', tolerance='6hours')
+aux['tp'] =  wvs['perpw'].reindex_like(aux, method='nearest', tolerance='6hours')
+aux['wind_speed'] = paun['wind_speed'].reindex_like(aux, method='nearest', tolerance='5min')
 
 aux['sylocs'] = xr.full_like(aux['wl'], np.nan, np.int)
 aux['stds'] = xr.full_like(aux['wl'], np.nan)
@@ -178,6 +192,7 @@ for t in ts:#np.random.choice(ts, 800, replace=False):
     print(t)
     print(f"{100*n/len(ts):.2f}")
     n+=1
+aux = aux.sortby('time') # because of the concat, time is not monotonically increasing.
 # %%
 """ WRITE TO NETCDF """
 # aux.to_netcdf('aux_output.nc')
@@ -264,14 +279,16 @@ weeks = []
 r2s = []
 theils = []
 ns = []
-doplot = True
-
-for month, gb in df.groupby(df['time'].dt.week):
-    print(month)
+doplot = False
+# goods = df['time'].dt.year == 2018
+df2 = df.sel(time=df.time.dt.year.isin([2018]))
+df2 = df2.sel(time=df2.time.dt.week > 1)
+for month, gb in df2.groupby(df2.time.dt.dayofyear):
+    # print(month)
     weeks.append(month)
     goods = (np.abs(gb['sycoords'] - gb['min_ys']) > 6) & (gb['stds'] >= 0.04) & (gb['snow'] > 0.1) # & (df['linestds'] < 15)
     xs = np.arange(df['wl'].min(), df['wl'].max(), .1)
-    ys = 8*xs + 151
+    ys = -12.5*xs + 62.5
     if sum(goods) > 1:
         theil = scipy.stats.theilslopes(gb['wl'][goods], gb['sycoords'][goods])
         theils.append(theil)
@@ -289,7 +306,8 @@ for month, gb in df.groupby(df['time'].dt.week):
         plt.scatter(gb['sycoords'][goods], gb['wl'][goods], c=gb['time'][goods], label='Aug–Oct 2018')
         if n == 28:
             plt.xlabel('Cross-shore position [m]')
-        plt.plot(ys, siegel[0]*ys + siegel[1])
+        # plt.plot(ys, siegel[0]*ys + siegel[1])
+        plt.plot([gb['sycoords'][goods].min(), gb['sycoords'][goods].max()], siegel[0]*np.array([gb['sycoords'][goods].min(), gb['sycoords'][goods].max()]) + siegel[1])
         plt.title(f"{month}: {siegel[0]:.3f}")
         # plt.fill_between(xs, ys-150*.1, ys+150*.1, color='lightgrey', zorder=0)
         xlims = plt.xlim(65, 110)
@@ -311,115 +329,86 @@ if doplot:
     # plt.savefig(f'week_of_year_{df.time[0].dt.year.values}.png', dpi=150, bbox_inches='tight')
     plt.show()
 # %%
-df.time[0]
-print(df.timestamp[0].values)
+
 # df['localtime'] = xr.DataArray(pd.DatetimeIndex(df['time'].values, tz='utc').tz_convert('US/Alaska').tz_localize(None), dims='time')
 # df= df.drop('localtime')
-goods = (df.time.dt.week == 28) & (np.abs(df['sycoords'] - df['min_ys']) > 4) & (df['stds'] >= 0.04) & (df['linestds'] < 15)
-plt.figure(figsize=(12,8))
-df['time'][goods]
-goodloctime = pd.DatetimeIndex(df['time'][goods].values, tz='utc').tz_convert('US/Alaska').tz_localize(None)
+week = 43
+year = 2018
+for week in np.arange(18,43):
+    for year in [2018, 2019]:
+        goods = (df.time.dt.year == year) & (df.time.dt.week == week) &  (np.abs(df['sycoords'] - df['min_ys']) > 6) & (df['stds'] >= 0.04) & (df['snow'] > 0.1) & (df['linestds'] < 15)
+        if not np.sum(goods):
+            continue
+        plt.figure(figsize=(12,8))
+        plt.subplot2grid((3,1),(0,0))
+        df['hs'].plot()
+        df['hs'][goods].plot(marker='.', ls='none')
 
-bounds = mdates.date2num(pd.date_range(goodloctime.min().date(), goodloctime.max().date()+pd.Timedelta('1d'), freq='1d'))
-norm = matplotlib.colors.BoundaryNorm(boundaries=bounds, ncolors=256)
-plt.scatter(df['sycoords'][goods], df['wl'][goods], c=mdates.date2num(goodloctime), label='Auto-picked shoreline', norm=norm, cmap=plt.cm.plasma)
-topo = pd.read_csv(fildir + 'gis/Unk19_ForDN/topo/asc/unk19_topo_argusFOV.csv')
+        plt.subplot2grid((3,1),(1,0), rowspan=2)
+        [x.timestamp() for x in pd.DatetimeIndex(df['time'][goods].values)]
+        goodloctime = pd.DatetimeIndex(df['time'][goods].values, tz='utc').tz_convert('US/Alaska').tz_localize(None)
 
-plt.plot(np.array([84.64998139, 83.34286574, 81.93244546, 80.49556624, 78.99894828,
-       77.62351934, 76.42739224, 75.17229157, 73.85486761, 72.47395137,
-       71.08193445, 69.82481399, 68.50898509, 67.19738887, 65.95328867,
-       64.73967702, 63.56128335, 61.9854817 , 60.48641425, 59.31981475,
-       58.39288996, 57.29982095, 56.13251799, 55.53489228, 54.81238208,
-       53.93530782, 53.10355508, 52.15583683, 51.18809928, 49.92436964,
-       48.65321357, 47.28473059, 45.86469818, 44.34012278, 43.04489787,
-       41.70704712, 40.58187956, 39.32785631, 38.26467525, 37.62736594,
-       37.21211209, 36.86540908]),
-       np.array([1.634, 1.842, 2.024, 2.158, 2.404, 2.578, 2.664, 2.795, 2.853,
-       3.014, 3.189, 3.309, 3.353, 3.509, 3.516, 3.457, 3.484, 3.532,
-       3.716, 4.079, 4.215, 4.311, 4.445, 4.556, 4.591, 4.546, 4.62 ,
-       4.7  , 4.759, 4.772, 4.895, 5.006, 5.056, 5.137, 5.268, 5.464,
-       5.544, 6.025, 6.019, 6.2  , 6.475, 6.77 ]), '*-', label='Survey line 1')
-plt.plot(np.array([83.93740293, 82.82702754, 81.65197362, 80.52749956, 79.47963826,
-78.36083102, 77.32731128, 76.21401224, 75.0541543 , 74.15115467,
-73.07802699, 72.17498654, 71.24757496, 70.74084649, 70.74409102,
-70.73715865, 70.70369302, 70.35191784, 69.46209575, 68.40731204,
-67.49012448, 66.59527333, 65.76084082, 64.86594984, 63.88844651,
-63.26323635, 62.42584169, 61.31380456, 60.22776082, 59.50374483,
-58.83034587, 58.24000292, 57.7445052 , 57.26210936, 56.5969654 ,
-56.22686849, 55.54193283, 55.0996639 , 54.25365887, 53.16207342,
-52.00724454, 50.88132542, 49.89084762, 48.92482257, 48.04412218,
-47.09727828, 46.34220533, 45.35526937, 44.41815906, 43.42207152,
-42.50598494, 41.66157132, 40.68764433, 39.84419166, 39.08973788,
-38.25875796, 38.07074419, 37.56686637, 37.53644718, 37.28233933,
-37.01196439, 36.35991734, 35.66203842, 35.38083886, 35.10639945,
-34.70512911]),
-np.array([1.782, 1.94 , 2.027, 2.232, 2.374, 2.442, 2.631, 2.737, 2.765,
-       2.923, 3.02 , 3.12 , 3.227, 3.276, 3.275, 3.28 , 3.262, 3.288,
-       3.429, 3.483, 3.47 , 3.47 , 3.486, 3.397, 3.358, 3.598, 3.565,
-       3.674, 3.793, 3.937, 3.995, 4.138, 4.31 , 4.405, 4.547, 4.536,
-       4.699, 4.695, 4.702, 4.625, 4.64 , 4.707, 4.778, 4.844, 4.928,
-       5.025, 5.141, 5.182, 5.333, 5.408, 5.448, 5.525, 5.541, 5.732,
-       5.756, 6.026, 6.255, 6.234, 6.205, 6.224, 6.516, 6.698, 7.044,
-       7.342, 7.316, 7.383]),
-        '*-', label='Survey line 2')
-import matplotlib.dates as mdates
-cb = plt.colorbar(label='Local date (black line indicates time of topo survey)')
-loc = mdates.AutoDateLocator()
-cbylims = cb.ax.get_ylim()
-print(cbylims)
-meantime = pd.DatetimeIndex(topo['GNSS Vector Observation.Start Time'], tz='US/Alaska').tz_localize(None).mean()
-cb.ax.plot([cbylims[0], cbylims[1]], mdates.date2num([meantime, meantime]),c='k', lw=1)#
-cb.ax.yaxis.set_major_locator(loc)
-cb.ax.yaxis.set_major_formatter(mdates.ConciseDateFormatter(loc))
+        bounds = mdates.date2num(pd.date_range(goodloctime.min().date(), goodloctime.max().date()+pd.Timedelta('1d'), freq='1d'))
+        norm = matplotlib.colors.BoundaryNorm(boundaries=bounds, ncolors=256)
+        plt.scatter(df['sycoords'][goods], df['wl'][goods], c=mdates.date2num(goodloctime), label='Auto-picked shoreline', norm=norm, cmap=plt.cm.plasma)
+
+        cb = plt.colorbar(label='Local date (black line indicates time of topo survey)')
+        loc = mdates.AutoDateLocator()
+        cbylims = cb.ax.get_ylim()
+        print(cbylims)
+        meantime = pd.DatetimeIndex(topo['GNSS Vector Observation.Start Time'], tz='US/Alaska').tz_localize(None).mean()
+        cb.ax.plot([cbylims[0], cbylims[1]], mdates.date2num([meantime, meantime]),c='k', lw=1)#
+        cb.ax.yaxis.set_major_locator(loc)
+        cb.ax.yaxis.set_major_formatter(mdates.ConciseDateFormatter(loc))
 
 
-plt.xlim(70,100)
-plt.ylim(1,4.5)
-plt.xlabel('Cross-shore distance [m]')
-plt.ylabel('Elevation [m NAVD88]')
-plt.legend()
+               # plt.scatter(topo['x'][495:537], topo['y'][495:537], c=topo['Elevation'][495:537], cmap=plt.cm.gist_earth)
+               # plt.scatter(topo['x'][544:610], topo['y'][544:610], c=topo['Elevation'][544:610], cmap=plt.cm.gist_earth)
+        plt.plot(topo['x'][495:537], topo['Elevation'][495:537], '*-', label='Topo survey line 1')
+        plt.plot(topo['x'][544:610], topo['Elevation'][544:610], '*-', label='Topo survey line 2')
 
-""" NOTE all times in this plot are LOCAL """
-djn.set_fontsize(plt.gcf(), 14)
-plt.savefig('beach_slope_with_topo_survey.png', dpi=300, bbox_inches='tight')
-plt.show()
+        plt.plot(bathy['x'][123255:123555], bathy['OrthometricHeight'][123255:123555], '--', label='Bathy survey')
+
+
+
+        plt.xlim(70,100)
+        plt.ylim(0.5,4.5)
+        plt.xlabel('Cross-shore distance [m]')
+        plt.ylabel('Elevation [m NAVD88]')
+        plt.title(f"{np.sum(goods.values)} points")
+        plt.legend()
+
+
+        """ NOTE all times in this plot are LOCAL """
+        djn.set_fontsize(plt.gcf(), 14)
+        plt.subplots_adjust(hspace=.4)
+        plt.savefig(f'beach_slope_with_topo_survey_{year}_{week}.png', dpi=300, bbox_inches='tight')
+        plt.show()
 # plt.plot(np.array([80, 100]), -0.08992005276821789*np.array([80, 100])+ 9.418220795056857)
 # %%
-n_points = 10
-aa = np.linspace(-5, 5, n_points)
-bb = np.linspace(-1.5, 1.5, n_points)
-
-def cost(a, b):
-    return a + b
-
-z = []
-for a in aa:
-    for b in bb:
-        z.append(cost(a, b))
-
-z = np.reshape(z, [len(aa), len(bb)])
-
-fig, ax = plt.subplots()
-im = ax.pcolormesh(aa, bb, z)
-cb = fig.colorbar(im)
-cb.ax.plot([-5, 5], [0.5, 0.5],'w')
-
-ax.axis('tight')
-plt.show()
+df['hs'].plot()
+plt.twinx()
+df['tp'].plot(c='C1')
 # %%
 
-
-goods = (df.time.dt.week == 28) & (np.abs(df['sycoords'] - df['min_ys']) > 4) & (df['stds'] >= 0.04) & (df['linestds'] < 15)
+# pd.Timestamp('2019-07-07').dayofyear
+goods = (df.time.dt.dayofyear == 160) & (np.abs(df['sycoords'] - df['min_ys']) > 6) & (df['stds'] >= 0.04) & (df['snow'] > 0.1) # & (df['linestds'] < 15)
 n = 1
-plt.figure(figsize=(15,10))
-for t in df.timestamp[goods]:
-    plt.subplot(np.ceil(np.sqrt(sum(goods.values))).astype(int), np.ceil(np.sqrt(sum(goods.values))).astype(int), n)
+
+plt.figure(figsize=(18,10))
+n = 18
+for t in df.timestamp[goods][n:n+1]:
+    # plt.subplot(np.ceil(np.sqrt(sum(goods.values))).astype(int), np.ceil(np.sqrt(sum(goods.values))).astype(int), n)
     n+=1
     ifile = fildir + 'proc/rect/' + str(int(t.values)) + '.' + camera + '.' + product + '.rect.png'
     imgboth = np.rot90(imageio.imread(ifile))
     plt.imshow(imgboth)
-    plt.ylim(2000,1000)
-    plt.plot(800, df['sylocs'][df['timestamp']==t.values], 'rs')
+    plt.title(f"{int(t.values)} --- {pd.Timestamp(int(t.values), unit='s')} --- {product} --- WL: {df.wl[df.timestamp == t].values}")
+    plt.ylim(1800,1400)
+    plt.xlim(250,1500)
+    # plt.plot(800, df['sylocs'][df['timestamp']==t.values], 'cs')
+    df['lvs'][df['timestamp']==t.values,:].plot(marker='.', ls='none', color='r')
+
 plt.show()
 
 # %%
@@ -443,7 +432,8 @@ for x in np.where(goods)[0]:
 plt.ylabel('Foreshore slope')
 plt.xlabel('Week of year ')
 # plt.ylim(0,.15)
-plt.ylim(0.02,.15)
+# plt.ylim(0.02,.15)
+plt.ylim(-0.2,.1)
 plt.grid()
 # plt.subplot(2,1,2)
 # 175*theils[goods, 0]+ theils[goods,1]

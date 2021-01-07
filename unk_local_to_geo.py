@@ -59,7 +59,8 @@ y = np.arange(-150,40,.1)
 """ load all rectified images and plot availability by hour """
 ts = [os.path.basename(x).split('.')[0] for x in glob.glob(fildir + 'proc/rect/*' + camera + '.' + product + '.rect.png')]
 
-t = ts[0]
+# get the image closest to the mean survey time
+t = ts[np.argmin(np.abs(np.array([int(x) for x in ts]) - int(pd.Timestamp('2019-07-11 20:22', tz='US/Alaska').timestamp())))]
 ifile = fildir + 'proc/rect/' + t + '.' + camera + '.' + product + '.rect.png'
 img = np.rot90(imageio.imread(ifile))
 # %%
@@ -84,16 +85,26 @@ Rvec = np.matmul(R,vec);  # This is a rotated vector of relative distances 3 hig
 # from utm to local, translate then rotate
 # i.e. you always want to rotate around zero
 
-
+# %%
+plt.figure(figsize=(20,20))
+plt.imshow(np.rot90(img, -1), extent=(0, 250, -150, 40, ))
+# plt.scatter(Rvec[0,:], Rvec[1,:], c=Rvec[2,:], cmap=plt.cm.gist_earth)
+# norm = plt.Normalize(0, 7)
+plt.scatter(topo['x'], topo['y'], c=topo['Elevation'], cmap=plt.cm.gist_earth)
+plt.savefig('backpack_all.png', dpi=300, bbox_inches='tight')
 # %%
 
 plt.figure(figsize=(10,10))
 plt.imshow(np.rot90(img, -1), extent=(0, 250, -150, 40, ))
 # plt.scatter(Rvec[0,:], Rvec[1,:], c=Rvec[2,:], cmap=plt.cm.gist_earth)
-plt.scatter(topo['x'][495:537], topo['y'][495:537], c=topo['Elevation'][495:537], cmap=plt.cm.gist_earth)
-plt.scatter(topo['x'][544:610], topo['y'][544:610], c=topo['Elevation'][544:610], cmap=plt.cm.gist_earth)
-plt.colorbar(fraction=0.034)
+norm = plt.Normalize(0, 7)
+plt.scatter(topo['x'][495:537], topo['y'][495:537], c=topo['Elevation'][495:537], cmap=plt.cm.gist_earth, norm=norm)
+plt.scatter(topo['x'][544:610], topo['y'][544:610], c=topo['Elevation'][544:610], cmap=plt.cm.gist_earth, norm=norm)
+plt.scatter(bathy['x'][123255:123555], bathy['y'][123255:123555], c=bathy['OrthometricHeight'][123255:123555], cmap=plt.cm.gist_earth, norm=norm)
+plt.scatter(bathy['x'][118414:118606], bathy['y'][118414:118606], c=bathy['OrthometricHeight'][118414:118606], cmap=plt.cm.gist_earth, norm=norm)
+plt.colorbar(fraction=0.034, label='Elevation [m NAVD88]')
 plt.axhline(-40)
+djn.set_fontsize(plt.gcf(), 14)
 # plt.savefig('backpack_merged.png', dpi=300, bbox_inches='tight')
 plt.show()
 # %%
@@ -140,11 +151,13 @@ print(np.where(goods))
 plt.figure(figsize=(10,8))
 plt.scatter(bathy['x'][goods], bathy['y'][goods], c=bathy['OrthometricHeight'][goods])
 # idx =123555:123255
-idx =123255
+idx =118414
+idx = 118606
 plt.plot(bathy['x'][idx], bathy['y'][idx], 'rs')
 plt.axis('equal')
 plt.colorbar()
 # %%
 plt.figure(figsize=(10,8))
 plt.scatter(bathy['x'][123255:123555], bathy['y'][123255:123555], c=bathy['OrthometricHeight'][123255:123555])
+plt.scatter(bathy['x'][118414:118606], bathy['y'][118414:118606], c=bathy['OrthometricHeight'][118414:118606])
 # idx =123555:123255

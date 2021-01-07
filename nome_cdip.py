@@ -17,13 +17,15 @@ dsbit.to_netcdf('/Volumes/Backstaff/field/unk/cdip_241.nc')
 # %%
 ds = xr.load_dataset('/Volumes/Backstaff/field/unk/cdip_241.nc')
 # %%
-ds = ds.sel(waveTime=slice('2018-01-01', '2018-12-31'))
+# ds = ds.sel(waveTime=slice('2018-01-01', '2018-12-31'))
+plt.figure(figsize=(10,8))
 ax = plt.subplot(2,1,1)
 (ds.waveHs/3.5).plot()
 dsunk.swh.plot(x='valid_time')
 plt.subplot(2,1,2, sharex=ax)
-ds.waveTp.plot(c='C1')
-# plt.xlim(pd.Timestamp('2018-07'), pd.Timestamp('2018-11'))
+(ds.waveTp/3).plot(marker='.', ls='none')
+dsunk.perpw.plot(x='valid_time')
+plt.xlim(pd.Timestamp('2018-08-01'), pd.Timestamp('2018-10-15'))
 plt.show()
 # %%
 # https://nomads.ncep.noaa.gov
