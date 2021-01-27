@@ -19,12 +19,13 @@ import matplotlib.colors
 import xarray as xr
 import warnings
 import matplotlib.dates as mdates
+from joblib import Parallel, delayed
 
 fildir = '/Volumes/Backstaff/field/unk/'
 
-n9468333 = xr.load_dataset('/Volumes/Backstaff/field/unk/n9468333.nc')
-wavesunk = xr.load_dataset('/Volumes/Backstaff/field/unk/ak_4m.nc')
-paun = xr.load_dataset('/Volumes/Backstaff/field/unk/paun_timeseries.nc')
+n9468333 = xr.load_dataset(fildir + 'n9468333.nc')
+wavesunk = xr.load_dataset(fildir + 'ak_4m.nc')
+paun = xr.load_dataset(fildir + 'paun_timeseries.nc')
 topo = pd.read_csv(fildir + 'gis/Unk19_ForDN/topo/asc/unk19_topo_argusFOV_with_local.csv')
 bathy = pd.read_csv(fildir + 'gis/Unk19_ForDN/bathy/csv/UNK19_bathy_with_local.csv')
 camera = 'both'
@@ -42,10 +43,13 @@ pics = []
 for name in gb:
     hours.append(name)
     pics.append(len(gb[name]))
-plt.plot(hours, pics, '*-')
+plt.bar(np.array(hours)+.5, pics)
 plt.xticks(np.arange(0,25,2))
+plt.xlabel('Hour of day')
+plt.ylabel('Number of photos')
 plt.xlim(0,24)
 plt.grid()
+plt.show()
 
 def to_epoch(dtime):
     return (dtime.tz_convert(pytz.utc).tz_convert(None) - pd.Timestamp("1970-01-01")) // pd.Timedelta('1s')
@@ -100,20 +104,28 @@ aux['tp'] =  wvs['perpw'].reindex_like(aux, method='nearest', tolerance='6hours'
 aux['wind_speed'] = paun['wind_speed'].reindex_like(aux, method='nearest', tolerance='5min')
 
 aux['sylocs'] = xr.full_like(aux['wl'], np.nan, np.int)
+aux['hsobloc'] = xr.full_like(aux['wl'], np.nan, np.int)
+aux['ssobloc'] = xr.full_like(aux['wl'], np.nan, np.int)
+aux['vsobloc'] = xr.full_like(aux['wl'], np.nan, np.int)
+aux['hotsuloc'] = xr.full_like(aux['wl'], np.nan, np.int)
+aux['sotsuloc'] = xr.full_like(aux['wl'], np.nan, np.int)
+aux['votsuloc'] = xr.full_like(aux['wl'], np.nan, np.int)
 aux['stds'] = xr.full_like(aux['wl'], np.nan)
 aux['snow'] = xr.full_like(aux['wl'], np.nan)
 # QAQC the values very close to the edge of the allowable limit
 aux['min_ys'] = aux['wl'] * 8 + 151 - 150*.1
-aux['sycoords'] = xr.full_like(aux['wl'], np.nan)
+# aux['sycoords'] = xr.full_like(aux['wl'], np.nan)
 aux['linestds'] = xr.full_like(aux['wl'], np.nan)
 aux['lvs'] = xr.DataArray(np.full((len(aux['time']), len(aux['xlocs'])), np.nan), dims=['time', 'xlocs'])
-
+aux['hsoblvs'] = xr.DataArray(np.full((len(aux['time']), len(aux['xlocs'])), np.nan), dims=['time', 'xlocs'])
+aux['ssoblvs'] = xr.DataArray(np.full((len(aux['time']), len(aux['xlocs'])), np.nan), dims=['time', 'xlocs'])
+aux['vsoblvs'] = xr.DataArray(np.full((len(aux['time']), len(aux['xlocs'])), np.nan), dims=['time', 'xlocs'])
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 n = 0
-doplot = False
+doplot = True
 
-for t in ts:#np.random.choice(ts, 800, replace=False):
+for t in np.random.choice(ts, 100, replace=False):
     t = str(t)
     ifile = fildir + 'proc/rect/' + t + '.' + camera + '.' + product + '.rect.png'
     img = np.rot90(imageio.imread(ifile))
@@ -130,12 +142,39 @@ for t in ts:#np.random.choice(ts, 800, replace=False):
         plt.imshow(img)
         plt.axhline(xstart, c='grey')
         plt.axhline(xend, c='grey')
-    linevals = []#{xloc: np.nan for xloc in xlocs}
+    linevals = []
+    hsoblinevals = []
+    ssoblinevals = []
+    vsoblinevals = []
     snowval = hsv[1800:2000,750:1000,1].mean()
     for xloc in xlocs:
-        h = movavg(hsv[:,xloc, 0].copy())
-        s = movavg(hsv[:,xloc, 1].copy())
-        v = hsv[:,xloc, 2].copy()
+        # used to do moving average, switch to gaussian blur
+        # h = movavg(hsv[:,xloc, 0].copy())
+        # s = movavg(hsv[:,xloc, 1].copy())
+        # v = hsv[:,xloc, 2].copy()
+        h = scipy.ndimage.gaussian_filter1d(hsv[:,xloc, 0], 7)
+        s = scipy.ndimage.gaussian_filter1d(hsv[:,xloc, 1], 7)
+        v = scipy.ndimage.gaussian_filter1d(hsv[:,xloc, 2], 7)
+
+        hsob = np.abs(scipy.ndimage.sobel(h))
+        ssob = np.abs(scipy.ndimage.sobel(s))
+        vsob = np.abs(scipy.ndimage.sobel(v))
+
+        hsob[0:xstart] = np.nan
+        hsob[xend:] = np.nan
+        ssob[0:xstart] = np.nan
+        ssob[xend:] = np.nan
+        vsob[0:xstart] = np.nan
+        vsob[xend:] = np.nan
+
+        hsobloc = np.nanargmax(hsob)
+        ssobloc = np.nanargmax(ssob)
+        vsobloc = np.nanargmax(vsob)
+
+        hsoblinevals.append(hsobloc)
+        ssoblinevals.append(ssobloc)
+        vsoblinevals.append(vsobloc)
+
         h[0:xstart] = np.nan
         h[xend:] = np.nan
         s[0:xstart] = np.nan
@@ -143,43 +182,82 @@ for t in ts:#np.random.choice(ts, 800, replace=False):
         v[0:xstart] = np.nan
         v[xend:] = np.nan
 
-        if np.nanmean(s[xstart:xstart+10]) < np.nanmean(s[xend-10:xend]):
-            mins = np.argwhere(s >= np.nanmean(s))[0][0]
+        # otsu will fail when all values are the same (this happens on very dark images)
+        try:
+            hotsuloc = np.where(np.diff(h > skimage.filters.threshold_otsu(h[xstart:xend])))[0][0] # find first otsu threshold breakpoint
+        except ValueError:
+            hotsuloc = np.nan
+        try:
+            sotsuloc = np.where(np.diff(s > skimage.filters.threshold_otsu(s[xstart:xend])))[0][0] # find first otsu threshold breakpoint
+        except ValueError:
+            sotsuloc = np.nan
+        try:
+            votsuloc = np.where(np.diff(v > skimage.filters.threshold_otsu(v[xstart:xend])))[0][0] # find first otsu threshold breakpoint
+        except ValueError:
+            votsuloc = np.nan
+
+        if np.nanmean(h[xstart:xstart+10]) <= np.nanmean(h[xend-10:xend]):
+            try:
+                minh = np.argwhere(h >= np.nanmean(h))[0][0]
+            except IndexError:
+                minh = xstart
         else:
-            mins = np.argwhere(s <= np.nanmean(s))[0][0]
-        if np.nanmean(h[xstart:xstart+10]) < np.nanmean(h[xend-10:xend]):
-            minh = np.argwhere(h >= np.nanmean(h))[0][0]
+            try:
+                minh = np.argwhere(h <= np.nanmean(h))[0][0]
+            except IndexError:
+                minh = xstart
+
+        if np.nanmean(s[xstart:xstart+10]) <= np.nanmean(s[xend-10:xend]):
+            try:
+                mins = np.argwhere(s >= np.nanmean(s))[0][0]
+            except IndexError:
+                mins = xstart
         else:
-            minh = np.argwhere(h <= np.nanmean(h))[0][0]
+            try:
+                mins = np.argwhere(s <= np.nanmean(s))[0][0]
+            except IndexError:
+                mins = xstart
+
+        gh = np.gradient(h)
+        gh[0:minh-25] = np.nan
+        gh[minh+25:] = np.nan
 
         gs = np.gradient(s)
         gs[0:mins-25] = np.nan
         gs[mins+25:] = np.nan
 
-        gh = np.gradient(h)
-        gh[0:minh-25] = np.nan
-        gh[minh+25:] = np.nan
+        if np.nanmean(h[xstart:xstart+10]) < np.nanmean(h[xend-10:xend]):
+            ghloc = np.nanargmax(gh)
+        else:
+            ghloc = np.nanargmin(gh)
+
         if np.nanmean(s[xstart:xstart+10]) < np.nanmean(s[xend-10:xend]):
             gsloc = np.nanargmax(gs)
         else:
             gsloc = np.nanargmin(gs)
         linevals.append(gsloc)
 
-        if np.nanmean(h[xstart:xstart+10]) < np.nanmean(h[xend-10:xend]):
-            ghloc = np.nanargmax(gh)
-        else:
-            ghloc = np.nanargmin(gh)
         if doplot:
-            plt.plot(xloc, gsloc, 's', c='C0')
+            # plt.plot(xloc, gsloc, 's', c='C0')
+            plt.plot(xloc, ssobloc, 's', c='C0')
             plt.plot(xloc+200*s, np.arange(len(s)), 'r')
 
         if xloc == 800:
+            aux.hsobloc[aux.timestamp == int(t)] = np.int(hsobloc)
+            aux.ssobloc[aux.timestamp == int(t)] = np.int(ssobloc)
+            aux.vsobloc[aux.timestamp == int(t)] = np.int(vsobloc)
+            aux.hotsuloc[aux.timestamp == int(t)] = np.int(hotsuloc)
+            aux.sotsuloc[aux.timestamp == int(t)] = np.int(sotsuloc)
+            aux.votsuloc[aux.timestamp == int(t)] = np.int(votsuloc)
             aux.sylocs[aux.timestamp == int(t)] = np.int(gsloc)
             aux.stds[aux.timestamp == int(t)] = np.nanstd(s)
             # times.append(t)
             aux.snow[aux.timestamp == int(t)] = snowval
 
     aux['lvs'].loc[dict(time=pd.Timestamp(int(t), unit='s'))] = linevals
+    aux['hsoblvs'].loc[dict(time=pd.Timestamp(int(t), unit='s'))] = hsoblinevals
+    aux['ssoblvs'].loc[dict(time=pd.Timestamp(int(t), unit='s'))] = ssoblinevals
+    aux['vsoblvs'].loc[dict(time=pd.Timestamp(int(t), unit='s'))] = vsoblinevals
     if doplot:
         plt.ylim(2000,1200)
         plt.text(1250,1850, f"{snowval:.3f}", color='white', va='top', fontsize=14)
@@ -187,7 +265,7 @@ for t in ts:#np.random.choice(ts, 800, replace=False):
             plt.text(1250, 1900, 'probable snow detected', color='white', va='top', fontsize=14)
         # plt.text(1250, 1900, f"week of year: {pd.to_datetime(t, unit='s').isocalendar()[1]}\nWL: {aux['wl'][aux['timestamp'] == int(t)].values[0]:.2f}\nHs: {aux['hs'][aux['timestamp'] == int(t)].values[0]:.2f}", color='white', va='top', fontsize=14)
         plt.title(f"{t} --- {pd.to_datetime(t, unit='s').tz_localize(pytz.utc).tz_convert(pytz.timezone('US/Alaska'))}, WL = {wl.values} m NAVD88, Hs = {hs.values:.2} m, % Hs = {100*hs.values/aux['hs'].mean().values:.2f}")
-        plt.savefig('unk' + t + '.png', bbox_inches='tight')
+        plt.savefig('unk' + t + '.png', bbox_inches='tight', dpi=300)
         plt.show()
     print(t)
     print(f"{100*n/len(ts):.2f}")
@@ -195,57 +273,34 @@ for t in ts:#np.random.choice(ts, 800, replace=False):
 aux = aux.sortby('time') # because of the concat, time is not monotonically increasing.
 # %%
 """ WRITE TO NETCDF """
-# aux.to_netcdf('aux_output.nc')
-aux = xr.load_dataset('aux_output.nc')
+# aux.to_netcdf(fildir + 'aux_output.nc')
+aux = xr.load_dataset(fildir + 'aux_output.nc')
 # %%
-# len(lvs)
-# lvs = np.array(lvs)
-# times = np.array(times)
-# len(times)
-# ylocs = np.array(ylocs)
-# sylocs = np.array(sylocs)
-# snow = np.array(snow)
-# syotsulocs = np.array(syotsulocs)
-# hylocs = np.array(hylocs)
-# stds = np.array(stds)
-# wls = np.array(wls)
-# times.shape
-# np.unique(times).shape
-
-# df = xr.Dataset()
 df = aux.where(~np.isnan(aux['stds']), drop=True)
-# df['time'] = pd.DatetimeIndex([pd.Timestamp(int(x), unit='s') for x in times])
-# df['timestamp'] = xr.DataArray([int(x) for x in times], dims='time')
-# df['sylocs'] = aux['sylocs'].reindex_like(df)
-# df['stds'] = aux['stds'].reindex_like(df)
-# df['wls'] = aux['wl'].reindex_like(df)
-# df['snow'] = aux['snow'].reindex_like(df)
-# QAQC the values very close to the edge of the allowable limit
-# df['min_ys'] = aux['min_ys'].reindex_like(df)
 df.sylocs.values = df.sylocs.values.astype(int)
+df.ssobloc.values = df.ssobloc.values.astype(int)
 df['sycoords'] = xr.DataArray(x[::-1][df['sylocs'].values], dims='time')
+df['ssobcoord'] = xr.DataArray(x[::-1][df['ssobloc'].values], dims='time')
 df['linestds'] = df['lvs'].std(dim='xlocs')
 xs = np.arange(df['wl'].min(), df['wl'].max(), .1)
 ys = 8*xs + 151
 # %%
-# plt.hist(df.linestds, bins=np.arange(0, 100, 10))
-# plt.plot(df.snow, df.linestds, '.')
-# df.stds.plot(marker='.', ls='none')
+# THE OLD WAY WITH SYLOCS
+# goods = (np.abs(x[df['sylocs'].values] - df['min_ys'].values) > 6) & (df['stds'].values >= 0.04) & (df['snow'].values > 0.1) #& (df['linestds'].values < 15)
+# plt.scatter(df['wl'], x[df['sylocs'].values], c=df['stds'])
+# plt.plot(df['wl'][goods], x[df['sylocs'].values][goods], 'r.')
 
-goods = (np.abs(x[df['sylocs'].values] - df['min_ys'].values) > 6) & (df['stds'].values >= 0.04) & (df['snow'].values > 0.1) #& (df['linestds'].values < 15)
-sum(goods)
-# goods = np.abs(x[df['sylocs']] - df['min_ys']) > 4
-# goods = stds >= 0.04
-sum(goods)/len(df['wl'])
-df
-plt.scatter(df['wl'], x[df['sylocs'].values], c=df['stds'])
-plt.plot(df['wl'][goods], x[df['sylocs'].values][goods], 'r.')
-# plt.plot(df['wls'][stds < 0.04], x[df['sylocs']][stds < 0.04], 'gs')
+# THE NEW WAY WITH SSOBLOC
+goods = (np.abs(x[df['ssobloc'].values] - df['min_ys'].values) > 6) & (df['stds'].values >= 0.04) & (df['snow'].values > 0.1) #& (df['linestds'].values < 15)
+plt.scatter(df['wl'], x[df['ssobloc'].values], c=df['stds'])
+plt.plot(df['wl'][goods], x[df['ssobloc'].values][goods], 'r.')
+plt.xlabel('Measured water level [m NAVD88]')
+plt.ylabel('x-location of detected shoreline [m]')
 plt.fill_between(xs, ys-150*.1, ys+150*.1, color='lightgrey', zorder=0)
 plt.colorbar()
 
 # %%
-goods = (np.abs(x[df['sylocs'].values] - df['min_ys'].values) > 6) & (df['stds'].values >= 0.04) & (df['snow'].values > 0.1) #& (df['linestds'].values < 15)
+goods = (np.abs(x[df['ssobloc'].values] - df['min_ys'].values) > 6) & (df['stds'].values >= 0.04) & (df['snow'].values > 0.1) #& (df['linestds'].values < 15)
 
 plt.figure(figsize=(8,6))
 
@@ -257,16 +312,16 @@ plt.figure(figsize=(8,6))
 # plt.plot(xs, ys, '--', lw=1, c='grey')
 
 # plt.subplot(1,3,2)
-plt.scatter(df['wl'][goods], df['sycoords'][goods], c=df['time'][goods])
+plt.scatter(df['wl'][goods], df['ssobcoord'][goods], c=df['time'][goods])
 # plt.scatter(wls[goods], x[syotsulocs[goods]], c=pd.DatetimeIndex([pd.Timestamp(x, unit='s') for x in times[goods].astype(int)]), label='Aug–Oct 2018', marker='s')
 cbar = plt.colorbar()
 cbar.ax.set_yticklabels(pd.to_datetime(cbar.get_ticks()).strftime(date_format='%Y-%m-%d'))
-plt.plot(xs, ys, '--', lw=1, c='grey')
+# plt.plot(xs, ys, '--', lw=1, c='grey')
 plt.xlabel('Unalakleet water level [m NAVD88]')
-siegel = djn.siegel(df['wl'][goods], x[df['sylocs'].values[goods]])
+siegel = djn.siegel(df['wl'][goods], x[::-1][df['ssobloc'].values[goods]])
 plt.plot(xs, siegel[0]*xs + siegel[1])
 plt.title(f"{siegel[0]:.3f} {siegel[1]:.3f}")
-plt.fill_between(xs, ys-150*.1, ys+150*.1, color='lightgrey', zorder=0)
+# plt.fill_between(xs, ys-150*.1, ys+150*.1, color='lightgrey', zorder=0)
 plt.ylabel('Cross-shore position [m]')
 
 plt.show()#
@@ -279,43 +334,50 @@ weeks = []
 r2s = []
 theils = []
 ns = []
-doplot = False
+doplot = True
 # goods = df['time'].dt.year == 2018
 df2 = df.sel(time=df.time.dt.year.isin([2018]))
 df2 = df2.sel(time=df2.time.dt.week > 1)
-for month, gb in df2.groupby(df2.time.dt.dayofyear):
+# for month, gb in df2.groupby(df2.time.dt.dayofyear):
+for month, gb in df2.groupby_bins(df2.time, pd.date_range(df2.time[0].values, df2.time[-1].values, freq='3d')):
     # print(month)
     weeks.append(month)
-    goods = (np.abs(gb['sycoords'] - gb['min_ys']) > 6) & (gb['stds'] >= 0.04) & (gb['snow'] > 0.1) # & (df['linestds'] < 15)
+    # goods = (np.abs(gb['sycoords'] - gb['min_ys']) > 6) & (gb['stds'] >= 0.04) & (gb['snow'] > 0.1) # & (df['linestds'] < 15)
+    goods = (np.abs(gb['ssobcoord'] - gb['min_ys']) > 6) & (gb['stds'] >= 0.04) & (gb['snow'] > 0.1) # & (df['linestds'] < 15)
     xs = np.arange(df['wl'].min(), df['wl'].max(), .1)
     ys = -12.5*xs + 62.5
     if sum(goods) > 1:
-        theil = scipy.stats.theilslopes(gb['wl'][goods], gb['sycoords'][goods])
+        # theil = scipy.stats.theilslopes(gb['wl'][goods], gb['sycoords'][goods])
+        theil = scipy.stats.theilslopes(gb['wl'][goods], gb['ssobcoord'][goods])
         theils.append(theil)
-        siegel = djn.siegel(gb['sycoords'][goods], gb['wl'][goods] )
+        # siegel = djn.siegel(gb['sycoords'][goods], gb['wl'][goods] )
+        siegel = djn.siegel(gb['ssobcoord'][goods], gb['wl'][goods] )
         slopes.append(siegel)
     else:
         theils.append((np.nan, np.nan, np.nan, np.nan))
         slopes.append((siegel, siegel))
 
-    r2s.append(np.corrcoef(gb['sycoords'][goods], gb['wl'][goods])[0,1]**2)
+    # r2s.append(np.corrcoef(gb['sycoords'][goods], gb['wl'][goods])[0,1]**2)
+    r2s.append(np.corrcoef(gb['ssobcoord'][goods], gb['wl'][goods])[0,1]**2)
     ns.append(np.sum(goods))
 
     if doplot:
         plt.subplot(4,8,n)
-        plt.scatter(gb['sycoords'][goods], gb['wl'][goods], c=gb['time'][goods], label='Aug–Oct 2018')
-        if n == 28:
+        # plt.scatter(gb['sycoords'][goods], gb['wl'][goods], c=gb['time'][goods], label='Aug–Oct 2018')
+        plt.scatter(gb['ssobcoord'][goods], gb['wl'][goods], c=gb['time'][goods], label='Aug–Oct 2018')
+        if n == 20:
             plt.xlabel('Cross-shore position [m]')
         # plt.plot(ys, siegel[0]*ys + siegel[1])
-        plt.plot([gb['sycoords'][goods].min(), gb['sycoords'][goods].max()], siegel[0]*np.array([gb['sycoords'][goods].min(), gb['sycoords'][goods].max()]) + siegel[1])
-        plt.title(f"{month}: {siegel[0]:.3f}")
+        # plt.plot([gb['sycoords'][goods].min(), gb['sycoords'][goods].max()], siegel[0]*np.array([gb['sycoords'][goods].min(), gb['sycoords'][goods].max()]) + siegel[1])
+        plt.plot([gb['ssobcoord'][goods].min(), gb['ssobcoord'][goods].max()], siegel[0]*np.array([gb['ssobcoord'][goods].min(), gb['ssobcoord'][goods].max()]) + siegel[1])
+        plt.title(f"{month.left}: {siegel[0]:.3f}")
         # plt.fill_between(xs, ys-150*.1, ys+150*.1, color='lightgrey', zorder=0)
         xlims = plt.xlim(65, 110)
         ylims = plt.ylim(0,5)
         # plt.plot(np.array([80, 100]), -0.08992005276821789*np.array([80, 100])+ 9.418220795056857)
         if (n != 1) and (n != 9) and (n != 17) and (n != 25):
             plt.gca().set_yticklabels([])
-        if n < 25:
+        if n < 17:
             plt.gca().set_xticklabels([])
         if n == 9:
             plt.ylabel('Unalakleet water level [m NAVD88]')
@@ -332,11 +394,11 @@ if doplot:
 
 # df['localtime'] = xr.DataArray(pd.DatetimeIndex(df['time'].values, tz='utc').tz_convert('US/Alaska').tz_localize(None), dims='time')
 # df= df.drop('localtime')
-week = 43
-year = 2018
+
 for week in np.arange(18,43):
     for year in [2018, 2019]:
-        goods = (df.time.dt.year == year) & (df.time.dt.week == week) &  (np.abs(df['sycoords'] - df['min_ys']) > 6) & (df['stds'] >= 0.04) & (df['snow'] > 0.1) & (df['linestds'] < 15)
+        goods = (df.time.dt.year == year) & (df.time.dt.week == week) &  (np.abs(df['ssobcoord'] - df['min_ys']) > 6) & (df['stds'] >= 0.04) & (df['snow'] > 0.1) & (df['linestds'] < 15)
+        # goods = (df.time.dt.year == year) & (df.time.dt.week == week) &  (np.abs(df['sycoords'] - df['min_ys']) > 6) & (df['stds'] >= 0.04) & (df['snow'] > 0.1) & (df['linestds'] < 15)
         if not np.sum(goods):
             continue
         plt.figure(figsize=(12,8))
@@ -350,8 +412,15 @@ for week in np.arange(18,43):
 
         bounds = mdates.date2num(pd.date_range(goodloctime.min().date(), goodloctime.max().date()+pd.Timedelta('1d'), freq='1d'))
         norm = matplotlib.colors.BoundaryNorm(boundaries=bounds, ncolors=256)
-        plt.scatter(df['sycoords'][goods], df['wl'][goods], c=mdates.date2num(goodloctime), label='Auto-picked shoreline', norm=norm, cmap=plt.cm.plasma)
-
+        # plt.scatter(df['sycoords'][goods], df['wl'][goods], c=mdates.date2num(goodloctime), label='Auto-picked shoreline', norm=norm, cmap=plt.cm.plasma)
+        plt.scatter(df['ssobcoord'][goods], df['wl'][goods], c=mdates.date2num(goodloctime), label='Auto-picked shoreline', norm=norm, cmap=plt.cm.plasma)
+        # f = scipy.interpolate.interp1d(df['ssobcoord'][goods], df['wl'][goods])
+        # plt.plot(85, f(85), 'rs')
+        # interpy = scipy.interpolate.interp1d(df['ssobcoord'][goods].values, df['wl'][goods].values, 85)
+        # ordered = np.argsort(df['ssobcoord'][goods].values)
+        # spl = scipy.interpolate.splrep(df['ssobcoord'][goods][ordered], df['wl'][goods][ordered])
+        # plt.plot(85, scipy.interpolate.splev(85, spl), 'bd')
+        # plt.plot(85, interpy, 'rs')
         cb = plt.colorbar(label='Local date (black line indicates time of topo survey)')
         loc = mdates.AutoDateLocator()
         cbylims = cb.ax.get_ylim()
@@ -392,7 +461,8 @@ df['tp'].plot(c='C1')
 # %%
 
 # pd.Timestamp('2019-07-07').dayofyear
-goods = (df.time.dt.dayofyear == 160) & (np.abs(df['sycoords'] - df['min_ys']) > 6) & (df['stds'] >= 0.04) & (df['snow'] > 0.1) # & (df['linestds'] < 15)
+# goods = (df.time.dt.dayofyear == 156) & (np.abs(df['sycoords'] - df['min_ys']) > 6) & (df['stds'] >= 0.04) & (df['snow'] > 0.1) # & (df['linestds'] < 15)
+goods = (df.time.dt.dayofyear == 152) & (np.abs(df['ssobcoord'] - df['min_ys']) > 6) & (df['stds'] >= 0.04) & (df['snow'] > 0.1) # & (df['linestds'] < 15)
 n = 1
 
 plt.figure(figsize=(18,10))
@@ -420,14 +490,15 @@ theils = np.array(theils)
 #
 plt.figure(figsize=(10,8))
 plt.subplot(2,1,1)
-goods = np.isfinite(weeks)#weeks < 46#r2s > 0.
+goods = np.isfinite(r2s)#weeks < 46#r2s > 0.
 # plt.plot(weeks[goods], slopes[:,0][goods], '.')
 # plt.plot(weeks[goods], theils[:,0][goods], '.')
-plt.errorbar(weeks[goods], theils[goods,0], np.vstack([theils[goods,0]-theils[goods,2], theils[goods,3]-theils[goods,0]]))
-plt.fill_between(weeks[goods], theils[goods,2], theils[goods,3], color='lightgrey')
+
+plt.errorbar([x.mid for x in weeks[goods]], theils[goods,0], np.vstack([theils[goods,0]-theils[goods,2], theils[goods,3]-theils[goods,0]]))
+plt.fill_between([x.mid for x in weeks[goods]], theils[goods,2], theils[goods,3], color='lightgrey')
 
 for x in np.where(goods)[0]:
-    plt.text(weeks[x], theils[x,3]+.005, ns[x], ha='center')
+    plt.text(weeks[x].mid, theils[x,3]+.005, ns[x], ha='center')
 
 plt.ylabel('Foreshore slope')
 plt.xlabel('Week of year ')
@@ -565,6 +636,7 @@ for t in np.random.choice(ts, 10): #ts:
     plt.imshow(gray, cmap=plt.cm.gray)
     plt.plot()
 # %%
+
 """ look at single image and inspect different channels """
 for t in np.random.choice(ts, 1):
     t = str(t)
@@ -586,9 +658,63 @@ for t in np.random.choice(ts, 1):
     print(s[1000:1200,750:1000].mean())
     print(s[1800:2000,750:1000].mean(), )
     plt.plot(200 +r[:,800], range(len(h[:,800])),'r')
+    plt.text(200, 1100, 'R', fontweight='bold', fontsize=14, color='r', bbox=dict(facecolor='white', alpha=0.5))
     plt.plot(400+ g[:,800], range(len(h[:,800])),'g')
+    plt.text(400, 1100, 'G', fontweight='bold', fontsize=14, color='g', bbox=dict(facecolor='white', alpha=0.5))
     plt.plot(600+ b[:,800], range(len(h[:,800])),'b')
+    plt.text(600, 1100, 'B', fontweight='bold', fontsize=14, color='b', bbox=dict(facecolor='white', alpha=0.5))
     plt.plot(800 + (r[:,800]-b[:,800]), range(len(h[:,800])),'r')
+    plt.text(800, 1100, 'R-B', fontweight='bold', fontsize=14, color='b', bbox=dict(facecolor='white', alpha=0.5))
     plt.plot(1000+ 200*h[:,800], range(len(h[:,800])),'r')
+    plt.text(1000, 1100, 'H', fontweight='bold', fontsize=14, color='b', bbox=dict(facecolor='white', alpha=0.5))
     plt.plot(1200+ 200*s[:,800], range(len(h[:,800])),'r')
+    plt.text(1200, 1100, 'S', fontweight='bold', fontsize=14, color='b', bbox=dict(facecolor='white', alpha=0.5))
     plt.plot(1400+ 200*v[:,800], range(len(h[:,800])),'r')
+    plt.text(1400, 1100, 'V', fontweight='bold', fontsize=14, color='b', bbox=dict(facecolor='white', alpha=0.5))
+    skimage.feature.canny(v[1000:2000,750:1000])
+    plt.figure(figsize=(14,8))
+
+    hgauss = scipy.ndimage.gaussian_filter1d(h[1200:1800,800], 7)
+    sgauss = scipy.ndimage.gaussian_filter1d(s[1200:1800,800], 7)
+    vgauss = scipy.ndimage.gaussian_filter1d(v[1200:1800,800], 7)
+    hobs = np.abs(scipy.ndimage.sobel(hgauss))
+    hobs = hobs * 1/hobs.max()
+    sobs = np.abs(scipy.ndimage.sobel(sgauss))
+    sobs = sobs * 1/sobs.max()
+    vobs = np.abs(scipy.ndimage.sobel(vgauss))
+    vobs = vobs * 1/vobs.max()
+    rbgauss = scipy.ndimage.gaussian_filter1d(r[1200:1800,800]-b[1200:1800,800], 7)
+    rbobs = np.abs(scipy.ndimage.sobel(rbgauss))
+    rbobs = rbobs * 10/rbobs.max()
+    plt.plot(mask)
+    plt.subplot(2,2,1)
+    plt.plot(h[1200:1800,800])
+    plt.plot(hgauss)
+    plt.plot(hobs)
+    plt.title(np.argmax(hobs))
+    mask = hgauss > skimage.filters.threshold_otsu(hgauss)
+    # %timeit movavg(r[1200:1800,800]-b[1200:1800,800], 7)
+    # %timeit scipy.ndimage.gaussian_filter1d(r[1200:1800,800]-b[1200:1800,800], 7)
+    plt.plot(mask)
+    plt.subplot(2,2,2)
+    plt.plot(s[1200:1800,800])
+    plt.plot(sgauss)
+    plt.plot(sobs)
+    plt.title(np.argmax(sobs))
+    mask = sgauss > skimage.filters.threshold_otsu(sgauss)
+    plt.plot(mask)
+    plt.subplot(2,2,3)
+    plt.plot(v[1200:1800,800])
+    plt.plot(vgauss)
+    plt.plot(vobs)
+    plt.title(np.argmax(vobs))
+    mask = vgauss > skimage.filters.threshold_otsu(vgauss)
+    plt.plot(mask)
+    plt.subplot(2,2,4)
+    plt.plot(r[1200:1800,800]-b[1200:1800,800])
+    plt.plot(rbgauss)
+    plt.plot(rbobs)
+    mask = rbgauss > skimage.filters.threshold_otsu(rbgauss)
+    plt.plot(mask*10)
+    plt.title(np.argmax(rbobs))
+    plt.show()
