@@ -20,6 +20,7 @@ import xarray as xr
 import warnings
 import matplotlib.dates as mdates
 from joblib import Parallel, delayed
+import multiprocessing
 
 fildir = '/Volumes/Backstaff/field/unk/'
 
@@ -34,7 +35,7 @@ product = 'timex'
 
 # %%
 """ load all rectified images and plot availability by hour """
-ts = [os.path.basename(x).split('.')[0] for x in glob.glob(fildir + 'proc/rect/*' + camera + '.' + product + '.rect.png')]
+ts = [os.path.basename(x).split('.')[0] for x in glob.glob(fildir + 'proc/rect/' + product + '/*' + camera + '.' + product + '.rect.png')]
 # pd.Timestamp('7/11/2019 8:30:00 PM', tz='US/Alaska').tz_convert('utc').timestamp()
 dt = pd.to_datetime(ts, unit='s').tz_localize(pytz.utc).tz_convert(pytz.timezone('US/Alaska'))
 gb = dt.groupby(dt.hour)
@@ -54,39 +55,56 @@ plt.show()
 def to_epoch(dtime):
     return (dtime.tz_convert(pytz.utc).tz_convert(None) - pd.Timestamp("1970-01-01")) // pd.Timedelta('1s')
 
-eights = to_epoch(gb[8][(gb[8].month >= 5) & (gb[8].month <= 8)]) # restrict to summer months
-nines = to_epoch(gb[9])
-tens = to_epoch(gb[10])
-elevens = to_epoch(gb[11])
-noons = to_epoch(gb[12])
-thirteens = to_epoch(gb[13])
-fourteens = to_epoch(gb[14])
-fifteens = to_epoch(gb[15])
-sixteens = to_epoch(gb[16])
-seventeens = to_epoch(gb[17])
-eighteens = to_epoch(gb[18][(gb[18].month >= 4) & (gb[18].month <= 9)]) # restrict to summer months
-nineteens = to_epoch(gb[19][(gb[19].month >= 4) & (gb[19].month <= 8)])
-twenties = to_epoch(gb[20][(gb[20].month >= 5) & (gb[20].month <= 8)])
-
+# eights = to_epoch(gb[8]) # restrict to summer months
+# nines = to_epoch(gb[9])
+# tens = to_epoch(gb[10])
+# elevens = to_epoch(gb[11])
+# noons = to_epoch(gb[12])
+# thirteens = to_epoch(gb[13])
+# fourteens = to_epoch(gb[14])
+# fifteens = to_epoch(gb[15])
+# sixteens = to_epoch(gb[16])
+# seventeens = to_epoch(gb[17])
+# eighteens = to_epoch(gb[18]) # restrict to summer months
+# nineteens = to_epoch(gb[19])
+# twenties = to_epoch(gb[20])
+print(len(ts))
+# %%
+""" pre-compute HSV images """
+# def dohsv(t):
+#     t = str(t)
+#     ifile = fildir + 'proc/rect/' + product + '/' + t + '.' + camera + '.' + product + '.rect.png'
+#     img = np.rot90(imageio.imread(ifile))
+#     hsv = cv2.cvtColor(np.flip(img,2), cv2.COLOR_BGR2HSV)
+#     ofile = fildir + 'proc/rect/' + product + '/hsv/' + t + '.' + camera + '.' + product + '.rect.png'
+#     print(ofile)
+#     imageio.imwrite(ofile, hsv, format='png', optimize=True)
+#     return ofile
+#
+# for t in ts:
+#     dohsv(t)
 # %%
 """ process and detect shorelines for given images """
 def movavg(data, window_width=5):
     cumsum_vec = np.cumsum(np.insert(data, 0, 0))
     return (cumsum_vec[window_width:] - cumsum_vec[:-window_width]) / window_width
-x = np.arange(0, 250, .1)
-y = np.arange(-150,40,.1)
 
-ts = np.hstack([nines, tens, elevens, noons, thirteens, fourteens, fifteens, sixteens, seventeens, eighteens, nineteens, twenties])
+x = np.linspace(250,0,2501)
+y = np.linspace(40,-150,1901)
+
+# we can just use ts now that we don't have any super dark images left
+# ts = np.hstack([nines, tens, elevens, noons, thirteens, fourteens, fifteens, sixteens, seventeens, eighteens, nineteens, twenties])
+# len(ts)
 # ENSURE ONLY 2018 DATA
 # goods = np.array([pd.Timestamp(x, unit='s').isocalendar()[0] == 2018 for x in ts])# need the funny isocalendar for week of year computations later
 # ENSURE ONLY 2019 DATA
 # goods = np.array([pd.Timestamp(x, unit='s').isocalendar()[0] == 2019 for x in ts]) & np.array([pd.Timestamp(x, unit='s').year == 2019 for x in ts])
 # ts = ts[goods]
-goods = (np.array([pd.Timestamp(x, unit='s').weekofyear for x in ts]) <= 44) & (np.array([pd.Timestamp(x, unit='s').month for x in ts]) >= 5)
+ts = np.array([int(x) for x in ts])
+goods = (np.array([pd.Timestamp(int(x), unit='s').weekofyear for x in ts]) <= 44) & (np.array([pd.Timestamp(int(x), unit='s').month for x in ts]) >= 5)
 ts = ts[goods]
 
 wvs = xr.Dataset()
-wavesunk.perpw
 _, index = np.unique(wavesunk['valid_time'], return_index=True)
 wvs['time'] = wavesunk.valid_time.values[index]
 for var in ['swh', 'perpw']:
@@ -113,7 +131,7 @@ aux['votsuloc'] = xr.full_like(aux['wl'], np.nan, np.int)
 aux['stds'] = xr.full_like(aux['wl'], np.nan)
 aux['snow'] = xr.full_like(aux['wl'], np.nan)
 # QAQC the values very close to the edge of the allowable limit
-aux['min_ys'] = aux['wl'] * 8 + 151 - 150*.1
+aux['min_ys'] = aux['wl'] * 8 + 155 - 155*.1
 # aux['sycoords'] = xr.full_like(aux['wl'], np.nan)
 aux['linestds'] = xr.full_like(aux['wl'], np.nan)
 aux['lvs'] = xr.DataArray(np.full((len(aux['time']), len(aux['xlocs'])), np.nan), dims=['time', 'xlocs'])
@@ -122,21 +140,22 @@ aux['ssoblvs'] = xr.DataArray(np.full((len(aux['time']), len(aux['xlocs'])), np.
 aux['vsoblvs'] = xr.DataArray(np.full((len(aux['time']), len(aux['xlocs'])), np.nan), dims=['time', 'xlocs'])
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-n = 0
-doplot = True
-
-for t in np.random.choice(ts, 100, replace=False):
+def procimg(t, n):
     t = str(t)
-    ifile = fildir + 'proc/rect/' + t + '.' + camera + '.' + product + '.rect.png'
+    ifile = fildir + 'proc/rect/' + product + '/' + t + '.' + camera + '.' + product + '.rect.png'
     img = np.rot90(imageio.imread(ifile))
 
     hsv = cv2.cvtColor(np.flip(img,2), cv2.COLOR_BGR2HSV).astype(float) / 255
+    # ihsv = fildir + 'proc/rect/' + product + '/hsv/' + t + '.' + camera + '.' + product + '.rect.png'
+    # hsv = imageio.imread(ihsv) / 255
+    # print('mean', (hsv - hsv2).mean())
+    # print('median', (hsv - hsv2).std())
 
     wl = aux['wl'].sel(time=pd.Timestamp(int(t), unit='s'))
     hs = aux['hs'].sel(time=pd.Timestamp(int(t), unit='s'))
-    firstguess = np.where(x == int(8*wl.values + 151))[0][0] # eyeballed slope from a first pass
-    xstart = firstguess - 125
-    xend = firstguess + 125
+    firstguess = np.where(x == int(-9.12*wl.values + 97.77))[0][0] # eyeballed slope from a first pass
+    xstart = firstguess - 110
+    xend = firstguess + 100
     if doplot:
         plt.figure(figsize=(16,8))
         plt.imshow(img)
@@ -187,9 +206,13 @@ for t in np.random.choice(ts, 100, replace=False):
             hotsuloc = np.where(np.diff(h > skimage.filters.threshold_otsu(h[xstart:xend])))[0][0] # find first otsu threshold breakpoint
         except ValueError:
             hotsuloc = np.nan
+        except IndexError:
+            hotsuloc = np.nan
         try:
             sotsuloc = np.where(np.diff(s > skimage.filters.threshold_otsu(s[xstart:xend])))[0][0] # find first otsu threshold breakpoint
         except ValueError:
+            sotsuloc = np.nan
+        except IndexError:
             sotsuloc = np.nan
         try:
             votsuloc = np.where(np.diff(v > skimage.filters.threshold_otsu(v[xstart:xend])))[0][0] # find first otsu threshold breakpoint
@@ -240,6 +263,7 @@ for t in np.random.choice(ts, 100, replace=False):
         if doplot:
             # plt.plot(xloc, gsloc, 's', c='C0')
             plt.plot(xloc, ssobloc, 's', c='C0')
+            plt.plot(xloc, vsobloc, 'D', c='C1')
             plt.plot(xloc+200*s, np.arange(len(s)), 'r')
 
         if xloc == 800:
@@ -260,30 +284,57 @@ for t in np.random.choice(ts, 100, replace=False):
     aux['vsoblvs'].loc[dict(time=pd.Timestamp(int(t), unit='s'))] = vsoblinevals
     if doplot:
         plt.ylim(2000,1200)
-        plt.text(1250,1850, f"{snowval:.3f}", color='white', va='top', fontsize=14)
+        plt.text(1250,1850, f"snowval: {snowval:.3f}\nSsigma = {np.nanstd(ssoblinevals):.3f}\nVsigma = {np.nanstd(vsoblinevals):.3f}", color='white', va='top', fontsize=14)
         if snowval < 0.1:
             plt.text(1250, 1900, 'probable snow detected', color='white', va='top', fontsize=14)
         # plt.text(1250, 1900, f"week of year: {pd.to_datetime(t, unit='s').isocalendar()[1]}\nWL: {aux['wl'][aux['timestamp'] == int(t)].values[0]:.2f}\nHs: {aux['hs'][aux['timestamp'] == int(t)].values[0]:.2f}", color='white', va='top', fontsize=14)
         plt.title(f"{t} --- {pd.to_datetime(t, unit='s').tz_localize(pytz.utc).tz_convert(pytz.timezone('US/Alaska'))}, WL = {wl.values} m NAVD88, Hs = {hs.values:.2} m, % Hs = {100*hs.values/aux['hs'].mean().values:.2f}")
-        plt.savefig('unk' + t + '.png', bbox_inches='tight', dpi=300)
+        plt.savefig(fildir + 'proc/shore/' + t + '.png', bbox_inches='tight', dpi=300)
         plt.show()
-    print(t)
-    print(f"{100*n/len(ts):.2f}")
-    n+=1
+    print(f"{t}: {100*n/len(ts):.2f}%")
+    # n+=1
+
+n = 0
+doplot = True
+for t in np.random.choice(ts, 100, replace=False):
+    procimg(t, n)
+    n += 1
+#
+# Parallel(n_jobs=4, backend='multiprocessing')(
+#     delayed(procimg)(t, n) for t in ts[0:4])
+
 aux = aux.sortby('time') # because of the concat, time is not monotonically increasing.
 # %%
 """ WRITE TO NETCDF """
 # aux.to_netcdf(fildir + 'aux_output.nc')
 aux = xr.load_dataset(fildir + 'aux_output.nc')
 # %%
+""" make a new photo bar graph with only good images """
+dt = pd.to_datetime(aux.time.values).tz_localize(pytz.utc).tz_convert(pytz.timezone('US/Alaska'))
+gb = dt.groupby(dt.hour)
+hours = []
+pics = []
+for name in gb:
+    hours.append(name)
+    pics.append(len(gb[name]))
+plt.bar(np.array(hours)+.5, pics)
+plt.xticks(np.arange(0,25,2))
+plt.xlabel('Hour of day')
+plt.ylabel('Number of photos')
+plt.xlim(0,24)
+plt.grid()
+plt.show()
+
+# %%
 df = aux.where(~np.isnan(aux['stds']), drop=True)
 df.sylocs.values = df.sylocs.values.astype(int)
 df.ssobloc.values = df.ssobloc.values.astype(int)
-df['sycoords'] = xr.DataArray(x[::-1][df['sylocs'].values], dims='time')
-df['ssobcoord'] = xr.DataArray(x[::-1][df['ssobloc'].values], dims='time')
+df['sycoords'] = xr.DataArray(x[df['sylocs'].values], dims='time')
+df['ssobcoord'] = xr.DataArray(x[df['ssobloc'].values], dims='time')
 df['linestds'] = df['lvs'].std(dim='xlocs')
 xs = np.arange(df['wl'].min(), df['wl'].max(), .1)
-ys = 8*xs + 151
+# ys = 8.8*xs + 155
+ys = -9.126*xs + 97.77
 # %%
 # THE OLD WAY WITH SYLOCS
 # goods = (np.abs(x[df['sylocs'].values] - df['min_ys'].values) > 6) & (df['stds'].values >= 0.04) & (df['snow'].values > 0.1) #& (df['linestds'].values < 15)
@@ -293,10 +344,13 @@ ys = 8*xs + 151
 # THE NEW WAY WITH SSOBLOC
 goods = (np.abs(x[df['ssobloc'].values] - df['min_ys'].values) > 6) & (df['stds'].values >= 0.04) & (df['snow'].values > 0.1) #& (df['linestds'].values < 15)
 plt.scatter(df['wl'], x[df['ssobloc'].values], c=df['stds'])
-plt.plot(df['wl'][goods], x[df['ssobloc'].values][goods], 'r.')
+plt.plot(df['wl'][goods],x[df['ssobloc'].values][goods],   'r.')
 plt.xlabel('Measured water level [m NAVD88]')
 plt.ylabel('x-location of detected shoreline [m]')
-plt.fill_between(xs, ys-150*.1, ys+150*.1, color='lightgrey', zorder=0)
+scipy.stats.theilslopes(x[df['ssobloc'].values][goods],df['wl'][goods],)
+plt.fill_between(xs, ys-155*.1, ys+155*.1, color='lightgrey', zorder=0)
+# plt.fill_between(ys, 1/8.8*xs-155/8.8*.1, 1/8.8*xs+155/8.8*.1, color='lightgrey', zorder=0)
+# plt.plot(ys, 1/8.8*xs-155/8.8)
 plt.colorbar()
 
 # %%
@@ -318,9 +372,11 @@ cbar = plt.colorbar()
 cbar.ax.set_yticklabels(pd.to_datetime(cbar.get_ticks()).strftime(date_format='%Y-%m-%d'))
 # plt.plot(xs, ys, '--', lw=1, c='grey')
 plt.xlabel('Unalakleet water level [m NAVD88]')
-siegel = djn.siegel(df['wl'][goods], x[::-1][df['ssobloc'].values[goods]])
-plt.plot(xs, siegel[0]*xs + siegel[1])
-plt.title(f"{siegel[0]:.3f} {siegel[1]:.3f}")
+# siegel = djn.siegel(df['wl'][goods], x[::-1][df['ssobloc'].values[goods]])
+theil = scipy.stats.theilslopes(x[df['ssobloc'].values[goods]], df['wl'][goods])
+plt.plot(xs, theil[0]*xs + theil[1])
+plt.fill_between(xs, theil[2]*xs + theil[1], theil[3]*xs + theil[1], color='none', edgecolor='black', ls='--')
+plt.title(f"cross-shore position = {theil[0]:.3f}*wl + {theil[1]:.3f}")
 # plt.fill_between(xs, ys-150*.1, ys+150*.1, color='lightgrey', zorder=0)
 plt.ylabel('Cross-shore position [m]')
 
@@ -336,7 +392,7 @@ theils = []
 ns = []
 doplot = True
 # goods = df['time'].dt.year == 2018
-df2 = df.sel(time=df.time.dt.year.isin([2018]))
+df2 = df.sel(time=df.time.dt.year.isin([2019]))
 df2 = df2.sel(time=df2.time.dt.week > 1)
 # for month, gb in df2.groupby(df2.time.dt.dayofyear):
 for month, gb in df2.groupby_bins(df2.time, pd.date_range(df2.time[0].values, df2.time[-1].values, freq='3d')):
@@ -462,7 +518,7 @@ df['tp'].plot(c='C1')
 
 # pd.Timestamp('2019-07-07').dayofyear
 # goods = (df.time.dt.dayofyear == 156) & (np.abs(df['sycoords'] - df['min_ys']) > 6) & (df['stds'] >= 0.04) & (df['snow'] > 0.1) # & (df['linestds'] < 15)
-goods = (df.time.dt.dayofyear == 152) & (np.abs(df['ssobcoord'] - df['min_ys']) > 6) & (df['stds'] >= 0.04) & (df['snow'] > 0.1) # & (df['linestds'] < 15)
+goods = (df.time.dt.dayofyear == 153) & (np.abs(df['ssobcoord'] - df['min_ys']) > 6) & (df['stds'] >= 0.04) & (df['snow'] > 0.1) # & (df['linestds'] < 15)
 n = 1
 
 plt.figure(figsize=(18,10))
@@ -470,7 +526,7 @@ n = 18
 for t in df.timestamp[goods][n:n+1]:
     # plt.subplot(np.ceil(np.sqrt(sum(goods.values))).astype(int), np.ceil(np.sqrt(sum(goods.values))).astype(int), n)
     n+=1
-    ifile = fildir + 'proc/rect/' + str(int(t.values)) + '.' + camera + '.' + product + '.rect.png'
+    ifile = fildir + 'proc/rect/' + product + '/' + str(int(t.values)) + '.' + camera + '.' + product + '.rect.png'
     imgboth = np.rot90(imageio.imread(ifile))
     plt.imshow(imgboth)
     plt.title(f"{int(t.values)} --- {pd.Timestamp(int(t.values), unit='s')} --- {product} --- WL: {df.wl[df.timestamp == t].values}")
@@ -718,3 +774,119 @@ for t in np.random.choice(ts, 1):
     plt.plot(mask*10)
     plt.title(np.argmax(rbobs))
     plt.show()
+# %%
+""" PCA stuff"""
+from sklearn.decomposition import PCA
+t
+for t in np.random.choice(ts, 1): # ['1535571001']
+    t = str(t)
+    ifile = fildir + 'proc/rect/' + t + '.' + camera + '.' + product + '.rect.png'
+    img = np.rot90(imageio.imread(ifile))
+
+    hsv = cv2.cvtColor(np.flip(img,2), cv2.COLOR_BGR2HSV).astype(float) / 255
+    ims = hsv[1200:2000,300:1050,:]
+    imsrgb = img[1200:2000,300:1050,:]
+    ims.shape
+    impca = np.hstack([np.reshape(ims[:,:,0], (ims.shape[0]*ims.shape[1], 1)),
+                       np.reshape(ims[:,:,1], (ims.shape[0]*ims.shape[1], 1)),
+                       np.reshape(ims[:,:,2], (ims.shape[0]*ims.shape[1], 1))])
+    impca.shape
+    pca = PCA(n_components=3)
+    fitted = pca.fit_transform(impca)
+    print(pca.explained_variance_ratio_)
+
+    plt.figure(figsize=(8,10))
+    plt.imshow(imsrgb)
+    plt.contourf(np.reshape(fitted[:,0], (ims.shape[0], ims.shape[1])), [-50, 0, 50], alpha=0., hatches=['-', '/', '\\', '//'])
+    plt.colorbar()
+# %%
+""" make a contour plot """
+
+
+auxn = aux.sel(time=slice(pd.Timestamp('2018-08-26'), pd.Timestamp('2018-08-31')))
+auxn = auxn.where(auxn.ssoblvs.std(dim='xlocs') < 30, drop=True)
+idx = auxn.wl.argmax()
+print(auxn.wl.max())
+t = str(auxn.timestamp[idx].values.astype(int))# 3450
+ifile = fildir + 'proc/rect/' + product + '/' + t + '.' + camera + '.' + product + '.rect.png'
+img = np.rot90(imageio.imread(ifile))
+
+gb = auxn.groupby_bins(auxn.wl, np.arange(.75, 2, .2))
+xs = []
+ys = []
+zs = []
+
+for a, b in gb:
+    # print(a, len(b.time))
+    if len(b.time) > 6:
+        # goods = b.ssoblvs.std(dim='time').values/10 < 6
+        xtmp = y[aux.xlocs.values]
+        # xtmp[~goods] = np.nan
+        # print(b.ssoblvs)
+        if np.all(np.isnan(b.ssoblvs.mean(dim='time'))):
+            continue
+        ytmp = x[b.ssoblvs.mean(dim='time').values.astype(int)]
+        # ytmp[~goods] = np.nan
+        ztmp = b.wl.median(dim='time').values * np.ones_like(y[aux.xlocs.values])
+        ztmp[~goods] = np.nan
+        plt.figure()
+        plt.plot(xtmp, ytmp)
+        plt.plot(xtmp, x[b.vsoblvs.mean(dim='time').values.astype(int)])
+        # plt.title(b.ssoblvs.std(dim='xlocs'))
+        plt.show()
+        xs.append(xtmp)
+        ys.append(ytmp)
+        zs.append(ztmp)
+    # plt.plot(y[aux.xlocs.values], x[b.ssoblvs.mean(dim='time').values.astype(int)], '-*')
+xs = np.array(xs)
+ys = np.array(ys)
+zs = np.array(zs)
+idxorder = np.argsort(np.nanmean(zs, axis=-1))
+xs = xs[idxorder, :]
+ys = ys[idxorder, :]
+zs = zs[idxorder, :]
+plt.figure(figsize=(10,8))
+plt.imshow(img, extent=(y.max(), y.min(), x.min(), x.max()))
+plt.title(auxn.wl[auxn.timestamp == int(t)].values)
+plt.contourf(xs, ys, zs, alpha=0.5)
+# plt.gca().invert_xaxis()
+plt.xlabel('alongshore (y) [m]')
+plt.ylabel('offshore (x) [m]')
+
+plt.colorbar(label='Beach elevation [m NAVD88]')
+plt.axis('equal')
+plt.ylim(50,120)
+plt.xlim(25,-125)
+plt.show()
+    # b.ssoblvs.mean(dim='time').plot()
+# %%
+t = str(1563143401)# 3450
+ifile = fildir + 'proc/rect/' + product + '/' + t + '.' + camera + '.' + product + '.rect.png'
+img = imageio.imread(ifile)
+plt.figure(figsize=(14,8))
+plt.subplot(1,4,1)
+plt.imshow(img)
+plt.xlim(500,1300)
+plt.xticks([])
+plt.yticks([])
+plt.title('RGB')
+hsv = cv2.cvtColor(np.flip(img,2), cv2.COLOR_BGR2HSV).astype(float) / 255
+plt.subplot(1,4,2)
+plt.imshow(hsv[:,:,0], cmap=plt.cm.gray)
+plt.xlim(500,1300)
+plt.xticks([])
+plt.yticks([])
+plt.title('H')
+plt.subplot(1,4,3)
+plt.imshow(hsv[:,:,1], cmap=plt.cm.gray)
+plt.xlim(500,1300)
+plt.xticks([])
+plt.yticks([])
+plt.title('S')
+plt.subplot(1,4,4)
+plt.imshow(hsv[:,:,2], cmap=plt.cm.gray)
+plt.xlim(500,1300)
+plt.xticks([])
+plt.yticks([])
+plt.title('V')
+plt.show()
